@@ -434,6 +434,224 @@ For rapid prototyping, focus on these essential tasks first:
 
 ---
 
+## Implementation Recommendations and Improvements
+
+This section outlines key improvements and design considerations for the CMG-TWIST integration project.
+
+### 1. DOF Unification
+**Priority**: HIGH  
+**Effort**: High
+
+- [ ] **Unify DOF between CMG and TWIST systems**
+  - Current state: CMG model trained with 29 DOF, but G1 robot has only 23 DOF
+  - **Recommendation**: Standardize both systems to use G1's 23 DOF configuration
+  - Both systems should use G1 as the primary deployment platform
+  - Benefits:
+    - Reduces joint mapping complexity
+    - Eliminates potential errors from DOF conversion
+    - Ensures motion compatibility between training and deployment
+  - Implementation:
+    - Retrain CMG model with G1's 23 DOF configuration
+    - Update all motion datasets to G1 DOF format
+    - Standardize joint ordering and naming conventions across both systems
+
+### 2. Enhanced Teacher Privileged Information
+**Priority**: HIGH  
+**Effort**: Medium
+
+- [ ] **Add terrain height map to teacher observations**
+  - Current state: Limited terrain information in privileged observations
+  - **Recommendation**: Include detailed terrain information in teacher policy
+  - Options:
+    - **Option A**: Height map of area under robot feet (e.g., 1m x 1m grid with 0.05m resolution)
+    - **Option B**: Ray-casting based terrain sensing (multiple rays from robot base)
+  - Benefits:
+    - Better terrain adaptation during training
+    - More robust student policy through knowledge distillation
+    - Enables walking on complex terrains
+  - Implementation details:
+    - Add height map sensor to privileged observations
+    - Update observation space dimension in config
+    - Terrain sampling resolution: 20x20 grid points = 400 dims
+    - Alternatively: 16 ray-cast directions × 2 (distance + height) = 32 dims
+  - Suggested format:
+    ```python
+    # Height map approach
+    terrain_height_map: [batch, grid_size, grid_size]  # e.g., [batch, 20, 20]
+    
+    # Ray-casting approach
+    terrain_rays: [batch, num_rays, 2]  # distance and height for each ray
+    ```
+
+### 3. Foot Contact and Torque Feedback
+**Priority**: HIGH  
+**Effort**: Medium
+
+- [ ] **Implement foot contact feedback as proprioceptive observation**
+  - Add binary foot contact sensors for both feet
+  - Provide to both teacher and student policies
+  - Include in proprioceptive observation space
+  - Format: `foot_contacts: [batch, 2]` (left, right)
+
+- [ ] **Add joint torque proprioception**
+  - Current state: Only position and velocity are observed
+  - **Recommendation**: Include actual joint torques in proprioceptive observations
+  - Benefits:
+    - Better force awareness
+    - Improved contact reasoning
+    - More robust control
+  - Implementation:
+    - Add torque measurements to observation: `joint_torques: [batch, 23]`
+    - Update observation dimension: `n_proprio += 23 + 2 = current + 25`
+    - Include in both teacher and student observations
+  - Normalization: Scale by maximum torque limits
+
+### 4. Enhanced Reward Function
+**Priority**: MEDIUM  
+**Effort**: Low-Medium
+
+- [ ] **Add traditional humanoid locomotion penalties**
+  - Current state: TWIST uses implicit rewards for agent movement
+  - **Recommendation**: Supplement with explicit velocity and angular velocity penalties
+  - Suggested reward components:
+  
+    a. **Linear velocity tracking penalty**:
+    ```python
+    r_lin_vel = -w_lin * ||v_base - v_cmd||^2
+    # Suggested weight: w_lin = 1.0
+    # Reference: "Learning to Walk in Minutes Using Massively Parallel Deep RL" (Rudin et al., 2021)
+    ```
+  
+    b. **Angular velocity tracking penalty**:
+    ```python
+    r_ang_vel = -w_ang * ||ω_base - ω_cmd||^2
+    # Suggested weight: w_ang = 0.5
+    # Reference: Same as above
+    ```
+  
+    c. **Base orientation penalty** (keep torso upright):
+    ```python
+    r_orient = -w_orient * ||projected_gravity - [0, 0, -1]||^2
+    # Suggested weight: w_orient = 1.0
+    # Reference: "RMA: Rapid Motor Adaptation for Legged Robots" (Kumar et al., 2021)
+    ```
+  
+    d. **Foot slip penalty**:
+    ```python
+    r_slip = -w_slip * sum(||v_foot_xy|| * contact_binary)
+    # Suggested weight: w_slip = 0.1
+    # Reference: "Learning Quadrupedal Locomotion over Challenging Terrain" (Lee et al., 2020)
+    ```
+  
+    e. **Action rate penalty** (delta between consecutive actions):
+    ```python
+    r_action_rate = -w_rate * ||action_t - action_{t-1}||^2
+    # Suggested weight: w_rate = 0.01
+    # Reference: "Walk These Ways" (Margolis et al., 2022)
+    ```
+
+  - Implementation:
+    - Add these reward terms to `g1_mimic_distill_config.py`
+    - Tune weights through experimentation
+    - Monitor individual reward components in training logs
+
+### 5. Gait Guidance for TWIST
+**Priority**: MEDIUM  
+**Effort**: Medium
+
+- [ ] **Add gait phase guidance to TWIST (similar to CMG)**
+  - Current state: TWIST tracks reference motion without explicit gait information
+  - **Recommendation**: Include gait phase/timing signals as in CMG
+  - Benefits:
+    - Better synchronization with reference motions
+    - Improved foot placement timing
+    - More natural gait patterns
+  - Implementation options:
+    - **Option A**: Sine/cosine gait phase encoding
+      ```python
+      gait_phase = [sin(2π * phase), cos(2π * phase)]  # 2 dims per leg
+      total_dims = 4  # left and right leg
+      ```
+    - **Option B**: Discrete gait state (stance/swing)
+      ```python
+      gait_state = [left_stance, left_swing, right_stance, right_swing]  # 4 dims
+      ```
+    - **Option C**: Contact schedule from reference motion
+      ```python
+      contact_schedule = reference_contacts[t:t+future_horizon]  # [horizon, 2]
+      ```
+  - Add to observation space for both teacher and student
+  - Update `n_proprio` dimension accordingly
+
+### 6. Configurable Terrain Generator
+**Priority**: HIGH  
+**Effort**: High
+
+- [ ] **Implement adjustable height map terrain generator**
+  - Current state: Training on flat ground only
+  - **Recommendation**: Create procedural terrain generator with adjustable difficulty
+  - Features to implement:
+  
+    a. **Terrain types**:
+    - Flat ground (baseline)
+    - Slopes (adjustable angle: 0-15°)
+    - Stairs (adjustable height: 5-15cm, depth: 20-40cm)
+    - Random rough terrain (Perlin noise-based)
+    - Stepping stones
+    - Mixed terrain curriculum
+  
+    b. **Friction variation**:
+    ```python
+    friction_range = [0.4, 1.2]  # Low to high friction
+    # Randomly sample friction per terrain patch
+    # Reference typical values: concrete ~0.7, ice ~0.1, rubber ~1.0
+    ```
+  
+    c. **Terrain difficulty curriculum**:
+    ```python
+    # Progressively increase difficulty during training
+    # Keys represent training iteration numbers
+    difficulty_schedule = {
+        0: "flat",           # Iterations 0-2k
+        2000: "low_slopes",  # Iterations 2k-5k
+        5000: "stairs",      # Iterations 5k-10k
+        10000: "rough",      # Iterations 10k-15k
+        15000: "mixed"       # Iterations 15k+
+    }
+    ```
+  
+  - Implementation:
+    - File: `legged_gym/legged_gym/utils/terrain_generator.py`
+    - Class: `ProceduralTerrainGenerator`
+    - Methods:
+      - `generate_flat_terrain()`
+      - `generate_slope_terrain(angle_range, num_slopes)`
+      - `generate_stairs_terrain(step_height, step_depth)`
+      - `generate_rough_terrain(roughness, frequency)`
+      - `generate_mixed_terrain(difficulty_level)`
+    - Configuration:
+      ```python
+      terrain_config = {
+          "terrain_type": "mixed",  # flat, slope, stairs, rough, mixed
+          "terrain_size": [10.0, 10.0],  # meters
+          "horizontal_scale": 0.05,  # resolution
+          "vertical_scale": 0.005,   # height precision
+          "slope_threshold": 0.75,   # max slope angle
+          "friction_range": [0.5, 1.0],
+          "restitution_range": [0.0, 0.3],
+          "curriculum_enabled": True,
+          "difficulty_level": 0.5  # 0.0 = easy, 1.0 = hard
+      }
+      ```
+  
+  - Integration with training:
+    - Add terrain config to `g1_mimic_distill_config.py`
+    - Generate new terrains periodically or per episode
+    - Include terrain parameters in privileged information
+    - Randomize terrain properties for domain randomization
+
+---
+
 ## Contact and Support
 
 For questions or issues during integration:
