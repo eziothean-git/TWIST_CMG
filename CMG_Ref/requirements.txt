@@ -1,0 +1,12 @@
+# Core dependencies for CMG (Conditional Motion Generator)
+torch>=1.10.0
+numpy>=1.20.0
+scipy>=1.7.0
+
+# Training and monitoring
+tensorboard>=2.8.0
+tqdm>=4.62.0
+
+# Visualization (optional, for mujoco_player.py)
+mujoco>=2.3.0
+# mujoco-python-viewer  # Uncomment if needed for visualization

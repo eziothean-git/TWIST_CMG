@@ -33,6 +33,34 @@ https://github.com/user-attachments/assets/4953b6de-5c84-4a4b-9391-75818903a654
 - [2025.08.04] Real-time retargeting is released. See [GMR](https://github.com/YanjieZe/GMR).
 - [2025.08.01] TWIST is accpeted by CoRL 2025.
 
+# CMG Reference Motion Integration
+
+This repository now includes **CMG_Ref** - a Conditional Motion Generator that can create reference motions from velocity commands instead of using motion capture data. This enables:
+
+- **Command-based control**: Generate reference motions from velocity commands (vx, vy, yaw_rate)
+- **Robust locomotion**: Train walking/running behaviors without requiring motion capture sequences
+- **Flexible control**: Generate diverse motions on-the-fly based on desired velocities
+
+The CMG model uses a Mixture-of-Experts architecture to predict smooth, physically plausible motion sequences. See [CMG_Ref/README.md](CMG_Ref/README.md) for detailed documentation and usage examples.
+
+**Quick Start with CMG:**
+```bash
+cd CMG_Ref
+# Install CMG dependencies (if not already installed)
+pip install -r requirements.txt
+
+# Train the CMG model (requires training data)
+python train.py
+
+# Generate reference motions from velocity commands
+python eval_cmg.py
+
+# Or use the example script
+python example_usage.py
+```
+
+For more information about CMG integration, see the [CMG_Ref folder](CMG_Ref/).
+
 
 
 
