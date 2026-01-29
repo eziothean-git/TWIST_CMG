@@ -443,8 +443,8 @@ This section outlines key improvements and design considerations for the CMG-TWI
 **Effort**: High
 
 - [ ] **Unify DOF between CMG and TWIST systems**
-  - Current state: CMG uses 29 DOF, G1 robot uses 23 DOF
-  - **Recommendation**: Standardize on CMG's approach with G1 as deployment target
+  - Current state: CMG model trained with 29 DOF, but G1 robot has only 23 DOF
+  - **Recommendation**: Standardize both systems to use G1's 23 DOF configuration
   - Both systems should use G1 as the primary deployment platform
   - Benefits:
     - Reduces joint mapping complexity
@@ -610,12 +610,13 @@ This section outlines key improvements and design considerations for the CMG-TWI
     c. **Terrain difficulty curriculum**:
     ```python
     # Progressively increase difficulty during training
+    # Keys represent training iteration numbers
     difficulty_schedule = {
-        0: "flat",           # First 2k iterations
-        2000: "low_slopes",  # 2k-5k iterations
-        5000: "stairs",      # 5k-10k iterations
-        10000: "rough",      # 10k+ iterations
-        15000: "mixed"       # 15k+ iterations
+        0: "flat",           # Iterations 0-2k
+        2000: "low_slopes",  # Iterations 2k-5k
+        5000: "stairs",      # Iterations 5k-10k
+        10000: "rough",      # Iterations 10k-15k
+        15000: "mixed"       # Iterations 15k+
     }
     ```
   
