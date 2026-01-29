@@ -34,3 +34,10 @@ retarget_lib/
 body_models/
 
 joao_data/
+
+# CMG_Ref large files
+CMG_Ref/dataloader/*.pt
+CMG_Ref/runs/
+CMG_Ref/*.npz
+CMG_Ref/*.pt
+CMG_Ref/*.pth
