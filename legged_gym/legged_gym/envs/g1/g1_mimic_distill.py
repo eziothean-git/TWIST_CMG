@@ -121,35 +121,57 @@ class G1MimicDistill(HumanoidMimic):
         self._motion_time_offsets[env_ids] = motion_times
         
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
-        root_pos[:, 2] += self.cfg.motion.height_offset
         
-        self._ref_root_pos[env_ids] = root_pos
-        self._ref_root_rot[env_ids] = root_rot
-        self._ref_root_vel[env_ids] = root_vel
-        self._ref_root_ang_vel[env_ids] = root_ang_vel
+        # CMG模式：只有dof_pos和dof_vel有效，root和body信息使用默认值
+        if root_pos is None:
+            # 使用默认站立姿态的root信息
+            self._ref_root_pos[env_ids] = self.base_init_state[:3].unsqueeze(0).expand(n, -1).clone()
+            self._ref_root_pos[env_ids, 2] += self.cfg.motion.height_offset
+            self._ref_root_rot[env_ids] = self.base_init_state[3:7].unsqueeze(0).expand(n, -1).clone()
+            self._ref_root_vel[env_ids] = 0.0
+            self._ref_root_ang_vel[env_ids] = 0.0
+        else:
+            root_pos[:, 2] += self.cfg.motion.height_offset
+            self._ref_root_pos[env_ids] = root_pos
+            self._ref_root_rot[env_ids] = root_rot
+            self._ref_root_vel[env_ids] = root_vel
+            self._ref_root_ang_vel[env_ids] = root_ang_vel
+        
         self._ref_dof_pos[env_ids] = dof_pos
         self._ref_dof_vel[env_ids] = dof_vel
-        if body_pos.shape[1] != self._ref_body_pos[env_ids].shape[1]:
-            body_pos = g1_body_from_38_to_52(body_pos)
-        self._ref_body_pos[env_ids] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
+        
+        # CMG模式：body_pos为None，不更新_ref_body_pos
+        if body_pos is not None:
+            if body_pos.shape[1] != self._ref_body_pos[env_ids].shape[1]:
+                body_pos = g1_body_from_38_to_52(body_pos)
+            self._ref_body_pos[env_ids] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
     
     
     def _update_ref_motion(self):
         motion_ids = self._motion_ids
         motion_times = self._get_motion_times()
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
-        root_pos[:, 2] += self.cfg.motion.height_offset
-        root_pos[:, :2] += self.episode_init_origin[:, :2]
         
-        self._ref_root_pos[:] = root_pos
-        self._ref_root_rot[:] = root_rot
-        self._ref_root_vel[:] = root_vel
-        self._ref_root_ang_vel[:] = root_ang_vel
+        # CMG模式：只有dof_pos和dof_vel有效
+        if root_pos is None:
+            # 保持当前root状态，只更新dof
+            pass
+        else:
+            root_pos[:, 2] += self.cfg.motion.height_offset
+            root_pos[:, :2] += self.episode_init_origin[:, :2]
+            self._ref_root_pos[:] = root_pos
+            self._ref_root_rot[:] = root_rot
+            self._ref_root_vel[:] = root_vel
+            self._ref_root_ang_vel[:] = root_ang_vel
+        
         self._ref_dof_pos[:] = dof_pos
         self._ref_dof_vel[:] = dof_vel
-        if body_pos.shape[1] != self._ref_body_pos.shape[1]:
-            body_pos = g1_body_from_38_to_52(body_pos)
-        self._ref_body_pos[:] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
+        
+        # CMG模式：body_pos为None，不更新_ref_body_pos
+        if body_pos is not None:
+            if body_pos.shape[1] != self._ref_body_pos.shape[1]:
+                body_pos = g1_body_from_38_to_52(body_pos)
+            self._ref_body_pos[:] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
         
     def _update_motion_difficulty(self, env_ids):
         if self.obs_type == 'priv':
@@ -211,6 +233,18 @@ class G1MimicDistill(HumanoidMimic):
         motion_ids_tiled = motion_ids_tiled.flatten()
         obs_motion_times = obs_motion_times.flatten()
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids_tiled, obs_motion_times)
+        
+        # CMG模式：只有dof_pos和dof_vel有效，其他信息使用默认值或仿真器当前值
+        if root_pos is None:
+            # 使用仿真器当前的root状态作为"参考"（实际上是自身状态）
+            # 这样priv_mimic_obs中的root信息就是当前状态
+            n_flat = motion_ids_tiled.shape[0]
+            root_pos = self.root_states[:, :3].unsqueeze(1).expand(-1, num_steps, -1).reshape(n_flat, 3)
+            root_rot = self.root_states[:, 3:7].unsqueeze(1).expand(-1, num_steps, -1).reshape(n_flat, 4)
+            root_vel = self.root_states[:, 7:10].unsqueeze(1).expand(-1, num_steps, -1).reshape(n_flat, 3)
+            root_ang_vel = self.root_states[:, 10:13].unsqueeze(1).expand(-1, num_steps, -1).reshape(n_flat, 3)
+            # body_pos 使用当前仿真器的body位置
+            body_pos = self.rigid_body_states[:, :, :3].unsqueeze(1).expand(-1, num_steps, -1, -1).reshape(n_flat, -1, 3)
         
         roll, pitch, yaw = euler_from_quaternion(root_rot)
         roll = roll.reshape(self.num_envs, num_steps, 1)

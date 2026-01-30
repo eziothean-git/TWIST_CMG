@@ -210,19 +210,17 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         regularization_scale_curriculum = False
         regularization_scale_gamma = 0.0001
         class scales:
-            tracking_joint_dof = 0.6
-            tracking_joint_vel = 0.2
-            # tracking_root_pose = 0.6  # CMG不提供root位置参考，注释掉
-            # tracking_root_vel = 1.0    # CMG不提供root速度参考，注释掉
+            # ========== CMG支持的跟踪奖励 ==========
+            tracking_joint_dof = 0.6      # CMG提供dof_pos ✓
+            tracking_joint_vel = 0.2      # CMG提供dof_vel ✓
             
-            # ========== Locomotion奖励（新增）==========
-            tracking_lin_vel = 1.5        # 跟踪线速度命令（关键）
-            tracking_ang_vel = 1.0        # 跟踪角速度命令（关键）
-            # ==========================================
+            # ========== CMG不支持的奖励（已禁用）==========
+            # tracking_root_pose = 0.6    # CMG不提供root位置参考
+            # tracking_root_vel = 1.0     # CMG不提供root速度参考
+            # tracking_keybody_pos = 2.0  # CMG不提供body位置参考
+            # feet_height = 5.0           # CMG不提供脚部参考高度
             
-            # tracking_keybody_pos = 0.6
-            tracking_keybody_pos = 2.0
-            
+            # ========== Locomotion正则化奖励 ==========
             # alive = 0.5
 
             feet_slip = -0.1
@@ -237,7 +235,6 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
             dof_acc = -5e-8
             action_rate = -0.01
             
-            # feet_height = 5.0
             feet_air_time = 5.0
             
             

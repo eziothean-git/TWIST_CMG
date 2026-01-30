@@ -91,6 +91,9 @@ class HumanoidMimic(HumanoidChar):
             self._dof_err_w = torch.tensor(self._dof_err_w, device=self.device, dtype=torch.float)
         
         self._key_body_ids_motion = self._motion_lib.get_key_body_idx(key_body_names=self.cfg.motion.key_bodies)
+        # CMG模式返回空列表，使用仿真器的key_body_ids代替
+        if len(self._key_body_ids_motion) == 0:
+            self._key_body_ids_motion = self._key_body_ids.cpu().tolist()
         # compare two tensors are same
         # assert torch.equal(self._key_body_ids, torch.tensor(key_body_ids_motion, device=self.device, dtype=torch.long)), \
         #     f"Key body ids mismatch: {self._key_body_ids} vs {key_body_ids_motion}"
