@@ -5,7 +5,7 @@ cd legged_gym/legged_gym/scripts
 
 
 exptid=$1
-device=$2
+device=${2:-cuda:0}
 
 task_name="g1_priv_mimic"
 proj_name="g1_priv_mimic"
