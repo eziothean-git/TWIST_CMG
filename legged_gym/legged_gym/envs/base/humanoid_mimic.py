@@ -325,8 +325,8 @@ class HumanoidMimic(HumanoidChar):
             height_cutoff = torch.abs(self.root_states[:, 2] - self._ref_root_pos[:, 2]) > self.cfg.rewards.root_height_diff_threshold
         else:
             # CMG模式：使用绝对高度阈值（太低=摔倒，太高=不正常）
-            height_too_low = self.root_states[:, 2] < 0.5  # 低于0.5m认为摔倒
-            height_too_high = self.root_states[:, 2] > 1.5  # 高于1.5m认为异常
+            height_too_low = self.root_states[:, 2] < 0.3  # 放宽到0.3m
+            height_too_high = self.root_states[:, 2] > 2.0  # 放宽到2.0m
             height_cutoff = height_too_low | height_too_high
 
         roll_cut = torch.abs(self.roll) > self.cfg.rewards.termination_roll
@@ -335,6 +335,25 @@ class HumanoidMimic(HumanoidChar):
         self.reset_buf |= pitch_cut
         motion_end = self.episode_length_buf * self.dt >= self._motion_lib.get_motion_length(self._motion_ids)
         self.reset_buf |= height_cutoff
+        
+        # 调试输出：打印哪个条件触发了reset
+        if self.viewer is not None and self.reset_buf.any():
+            reset_envs = self.reset_buf.nonzero(as_tuple=True)[0]
+            if len(reset_envs) > 0:
+                env_id = reset_envs[0].item()
+                reasons = []
+                if contact_force_termination[env_id]:
+                    reasons.append("contact_force")
+                if height_cutoff[env_id]:
+                    reasons.append(f"height(z={self.root_states[env_id, 2].item():.2f})")
+                if roll_cut[env_id]:
+                    reasons.append(f"roll({self.roll[env_id].item():.2f})")
+                if pitch_cut[env_id]:
+                    reasons.append(f"pitch({self.pitch[env_id].item():.2f})")
+                if motion_end[env_id]:
+                    reasons.append("motion_end")
+                if reasons:
+                    print(f"[Termination] env {env_id}: {', '.join(reasons)}")
         
         if self.viewer is None:
             self.reset_buf |= motion_end
