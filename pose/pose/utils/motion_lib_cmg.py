@@ -10,14 +10,77 @@ import sys
 import torch
 import numpy as np
 from pathlib import Path
+import importlib.util
 
 # 添加CMG_Ref路径
-SCRIPT_DIR = Path(__file__).parent.parent.parent.parent
-CMG_REF_DIR = SCRIPT_DIR / "CMG_Ref"
-sys.path.insert(0, str(CMG_REF_DIR))
+# 当这个文件被导入时，通常是通过 from pose.utils.motion_lib_cmg import ...
+# 所以我们需要找到TWIST_CMG根目录
 
-from CMG_Ref.utils.cmg_motion_generator import CMGMotionGenerator
-from CMG_Ref.utils.command_sampler import CommandSampler
+def _get_project_root():
+    """获取TWIST_CMG根目录"""
+    # motion_lib_cmg.py 的路径: TWIST_CMG/pose/pose/utils/motion_lib_cmg.py
+    current_file = Path(__file__).resolve()
+    # 往上4级: utils -> pose -> pose -> TWIST_CMG
+    return current_file.parent.parent.parent.parent
+
+PROJECT_ROOT = _get_project_root()
+CMG_REF_DIR = PROJECT_ROOT / "CMG_Ref"
+
+# 确保路径添加到sys.path
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+# 手动加载CMGMotionGenerator - 使用文件路径避免包导入问题
+def _load_cmg_module():
+    """动态加载CMG模块"""
+    cmg_module_path = str(CMG_REF_DIR / "utils" / "cmg_motion_generator.py")
+    if not Path(cmg_module_path).exists():
+        raise FileNotFoundError(f"CMG模块不存在: {cmg_module_path}")
+    
+    spec = importlib.util.spec_from_file_location("cmg_motion_generator", cmg_module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载CMG模块: {cmg_module_path}")
+    
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+def _load_command_sampler_module():
+    """动态加载CommandSampler模块"""
+    cmd_module_path = str(CMG_REF_DIR / "utils" / "command_sampler.py")
+    if not Path(cmd_module_path).exists():
+        raise FileNotFoundError(f"CommandSampler模块不存在: {cmd_module_path}")
+    
+    spec = importlib.util.spec_from_file_location("command_sampler", cmd_module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载CommandSampler模块: {cmd_module_path}")
+    
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+# 延迟加载，避免初始化时的导入问题
+_cmg_module_cache = None
+_cmd_module_cache = None
+
+def _get_cmg_motion_generator():
+    global _cmg_module_cache
+    if _cmg_module_cache is None:
+        _cmg_module_cache = _load_cmg_module()
+    return _cmg_module_cache.CMGMotionGenerator
+
+def _get_command_sampler():
+    global _cmd_module_cache
+    if _cmd_module_cache is None:
+        _cmd_module_cache = _load_command_sampler_module()
+    return _cmd_module_cache.CommandSampler
+
+# 创建别名供使用
+def get_cmg_motion_generator():
+    return _get_cmg_motion_generator()
+
+def get_command_sampler():
+    return _get_command_sampler()
 
 
 class MotionLibCMG:
@@ -50,6 +113,10 @@ class MotionLibCMG:
         print(f"  - 环境数: {num_envs}")
         print(f"  - 设备: {device}")
         
+        # 动态加载CMG模块
+        CMGMotionGenerator = get_cmg_motion_generator()
+        CommandSampler = get_command_sampler()
+        
         # 初始化CMG生成器
         self.generator = CMGMotionGenerator(
             model_path=cmg_model_path,
@@ -62,6 +129,7 @@ class MotionLibCMG:
         )
         
         # 初始化命令采样器
+        CommandSampler = get_command_sampler()
         self.command_sampler = CommandSampler()
         
         # 状态追踪
