@@ -486,7 +486,8 @@ class G1MimicPrivCfgPPO(HumanoidMimicCfgPPO):
         # schedule = 'fixed' # could be adaptive, fixed
     
     class policy(HumanoidMimicCfgPPO.policy):
-        action_std = [0.7] * 12 + [0.4] * 3 + [0.5] * 8
+        # action_std for 29 DOF: 12 legs + 3 waist + 8 arms + 6 wrists = 29
+        action_std = [0.7] * 12 + [0.4] * 3 + [0.5] * 8 + [0.3] * 6
         init_noise_std = 1.0
         obs_context_len = 11
         actor_hidden_dims = [512, 512, 256, 128]
@@ -537,7 +538,8 @@ class G1MimicStuRLCfgDAgger(G1MimicStuRLCfg):
         # dagger_coef_min = 0.0  # Minimum value for dagger_coef
 
     class policy(HumanoidMimicCfgPPO.policy):
-        action_std = [0.7] * 12 + [0.4] * 3 + [0.5] * 8
+        # action_std for 29 DOF: 12 legs + 3 waist + 8 arms + 6 wrists = 29
+        action_std = [0.7] * 12 + [0.4] * 3 + [0.5] * 8 + [0.3] * 6
         init_noise_std = 1.0
         obs_context_len = 11
         actor_hidden_dims = [512, 512, 256, 128]
