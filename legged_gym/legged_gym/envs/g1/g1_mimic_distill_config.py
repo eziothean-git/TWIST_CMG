@@ -140,10 +140,10 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         clip_actions = 5.0
     
     class asset(HumanoidMimicCfg.asset):
-        # Updated to 29 DOF URDF (includes wrist joints)
+        # Updated to 29 DOF URDF (official version from unitree_mujoco)
         # file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision.urdf'
         # file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision_with_fixed_hand.urdf'  # Old 23 DOF
-        file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_29dof_rev_1_0.urdf'
+        file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_29dof.urdf'
         
         # for both joint and link name
         torso_name: str = 'pelvis'  # humanoid pelvis part
