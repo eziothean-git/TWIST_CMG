@@ -128,7 +128,21 @@ class CMGMotionGenerator:
     
     def _load_model(self, model_path: str, data_path: str):
         """加载CMG模型和数据统计信息"""
-        from CMG_Ref.module.cmg import CMG
+        import sys
+        import importlib.util
+        from pathlib import Path
+        
+        # 获取CMG_Ref根目录
+        cmg_ref_root = Path(__file__).parent.parent
+        module_path = str(cmg_ref_root / "module" / "cmg.py")
+        
+        # 动态加载CMG模块
+        spec = importlib.util.spec_from_file_location("cmg", module_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"无法加载CMG模块: {module_path}")
+        cmg_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cmg_module)
+        CMG = cmg_module.CMG
         
         # 加载数据和统计信息
         data = torch.load(data_path, weights_only=False)
