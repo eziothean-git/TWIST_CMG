@@ -230,6 +230,7 @@ class G1MimicDistill(HumanoidMimic):
         root_rot = root_rot.reshape(self.num_envs, num_steps, root_rot.shape[-1])
         root_ang_vel = root_ang_vel.reshape(self.num_envs, num_steps, root_ang_vel.shape[-1])
         dof_pos = dof_pos.reshape(self.num_envs, num_steps, dof_pos.shape[-1])
+        dof_vel = dof_vel.reshape(self.num_envs, num_steps, dof_vel.shape[-1])
      
         # teacher v0
         priv_mimic_obs_buf = torch.cat((
@@ -243,21 +244,23 @@ class G1MimicDistill(HumanoidMimic):
         
         
         # v6, align mocap
-        mimic_obs_buf = torch.cat((
-            root_pos[..., 2:3], # 1 dim
-            roll, pitch, yaw, # 3 dims
-            root_vel, # 3 dims
-            root_ang_vel[..., 2:3], # 1 dim, yaw only
-            dof_pos, # num_dof dims
-        ), dim=-1)[:, 0:1] # shape: (num_envs, 1, 7 + num_dof)
+        mimic_obs_buf = dof_pos[:, 0:1] # shape: (num_envs, 1, num_dof)
+
+        cmg_obs_seq = torch.cat((
+            dof_pos,
+            dof_vel,
+        ), dim=-1) # shape: (num_envs, num_steps, 2*num_dof)
         
-        
-        return priv_mimic_obs_buf.reshape(self.num_envs, -1), mimic_obs_buf.reshape(self.num_envs, -1)
+        return (
+            priv_mimic_obs_buf.reshape(self.num_envs, -1),
+            mimic_obs_buf.reshape(self.num_envs, -1),
+            cmg_obs_seq.reshape(self.num_envs, -1),
+        )
 
     def compute_observations(self):
         imu_obs = torch.stack((self.roll, self.pitch), dim=1)
         self.base_yaw_quat = quat_from_euler_xyz(0*self.yaw, 0*self.yaw, self.yaw)
-        priv_mimic_obs, mimic_obs = self._get_mimic_obs()
+        priv_mimic_obs, mimic_obs, cmg_obs_seq = self._get_mimic_obs()
         
         proprio_obs_buf = torch.cat((
                             self.base_ang_vel  * self.obs_scales.ang_vel,   # 3 dims
@@ -306,6 +309,7 @@ class G1MimicDistill(HumanoidMimic):
         
         priv_obs_buf = torch.cat((
             priv_mimic_obs,
+            cmg_obs_seq,
             proprio_obs_buf,
             priv_info,
         ), dim=-1)

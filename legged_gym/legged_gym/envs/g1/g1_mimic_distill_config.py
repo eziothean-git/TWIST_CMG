@@ -16,12 +16,13 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         
         n_proprio = 3 + 2 + 3*num_actions
         n_priv_mimic_obs = len(tar_obs_steps) * (8 + num_actions + 3*9) # Hardcode for now, 9 is base, 9 is the number of key bodies
-        n_mimic_obs = 8 + 29 # 29 for dof pos (updated from 23)
+        n_cmg_obs = len(tar_obs_steps) * (2 * num_actions)
+        n_mimic_obs = num_actions # only dof pos in student mimic obs
         n_priv_info = 3 + 1 + 3*9 + 2 + 4 + 1 + 2*num_actions # base lin vel, root height, key body pos, contact mask, priv latent
         history_len = 10
         
-        n_obs_single = n_priv_mimic_obs + n_proprio + n_priv_info
-        n_priv_obs_single = n_priv_mimic_obs + n_proprio + n_priv_info
+        n_obs_single = n_priv_mimic_obs + n_cmg_obs + n_proprio + n_priv_info
+        n_priv_obs_single = n_priv_mimic_obs + n_cmg_obs + n_proprio + n_priv_info
         
         num_observations = n_obs_single
 
@@ -336,13 +337,14 @@ class G1MimicStuCfg(G1MimicPrivCfg):
         
         n_proprio = 3 + 2 + 3*num_actions
         n_priv_mimic_obs = len(tar_obs_steps) * (8 + num_actions + 3*9) # Hardcode for now, 9 is the number of key bodies
-        n_mimic_obs = 8 + 23 # 23 for dof pos
+        n_cmg_obs = len(tar_obs_steps) * (2 * num_actions)
+        n_mimic_obs = num_actions # only dof pos in student mimic obs
         
         n_priv_info = 3 + 1 + 3*9 + 2 + 4 + 1 + 2*num_actions # base lin vel, root height, key body pos, contact mask, priv latent
         history_len = 10
         
         n_obs_single = n_mimic_obs + n_proprio
-        n_priv_obs_single = n_priv_mimic_obs + n_proprio + n_priv_info
+        n_priv_obs_single = n_priv_mimic_obs + n_cmg_obs + n_proprio + n_priv_info
         
         num_observations = n_obs_single * (history_len + 1)
 
@@ -362,13 +364,14 @@ class G1MimicStuRLCfg(G1MimicPrivCfg):
         
         n_proprio = 3 + 2 + 3*num_actions
         n_priv_mimic_obs = len(tar_obs_steps) * (8 + num_actions + 3*9) # Hardcode for now, 9 is the number of key bodies
-        n_mimic_obs = 8 + 23 # 23 for dof pos
+        n_cmg_obs = len(tar_obs_steps) * (2 * num_actions)
+        n_mimic_obs = num_actions # only dof pos in student mimic obs
         
         n_priv_info = 3 + 1 + 3*9 + 2 + 4 + 1 + 2*num_actions # base lin vel, root height, key body pos, contact mask, priv latent
         history_len = 10
         
         n_obs_single = n_mimic_obs + n_proprio
-        n_priv_obs_single = n_priv_mimic_obs + n_proprio + n_priv_info
+        n_priv_obs_single = n_priv_mimic_obs + n_cmg_obs + n_proprio + n_priv_info
         
         num_observations = n_obs_single * (history_len + 1)
 
