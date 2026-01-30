@@ -40,14 +40,29 @@ This repository now includes **CMG_Ref** - a Conditional Motion Generator that c
 - **Command-based control**: Generate reference motions from velocity commands (vx, vy, yaw_rate)
 - **Robust locomotion**: Train walking/running behaviors without requiring motion capture sequences
 - **Flexible control**: Generate diverse motions on-the-fly based on desired velocities
+- **High-performance**: Optimized for 4096 parallel environments with dual-mode operation
 
-The CMG model uses a Mixture-of-Experts architecture to predict smooth, physically plausible motion sequences. See [CMG_Ref/README.md](CMG_Ref/README.md) for detailed documentation and usage examples.
+The CMG model uses a Mixture-of-Experts architecture to predict smooth, physically plausible motion sequences. 
 
 **Quick Start with CMG:**
 ```bash
 cd CMG_Ref
 # Install CMG dependencies (if not already installed)
 pip install -r requirements.txt
+
+# Run examples
+python integration_examples.py --example 1  # Pregenerated mode
+python integration_examples.py --example 2  # Realtime mode
+
+# Performance testing
+python benchmark_performance.py --mode quick
+```
+
+**Documentation:**
+- **CMG Integration Guide**: `CMG_Ref/utils/README_INTEGRATION.md`
+- **Performance Optimization**: `CMG_PERFORMANCE_OPTIMIZATION.md` (also available in Chinese: `CMG_PERFORMANCE_OPTIMIZATION.zh.md`)
+- **Implementation Summary**: `Documents/CMG_IMPLEMENTATION_SUMMARY.md`
+- **Project Roadmap**: `ToDo.md` / `ToDo.zh.md`
 
 # Train the CMG model (requires training data)
 python train.py
@@ -191,6 +206,29 @@ python server_high_level_motion_lib.py --motion_file PATH/TO/YOUR/MOTION/FILE --
 **6**. Real-time teleop. We provide a legacy version we use in May 2025 here: `deploy_real/server_motion_optitrack_v2 (legacy).py`. 
 - As later we have upgraded to use [GMR](https://github.com/YanjieZe/GMR) for real-time teleop, you can first check [GMR](https://github.com/YanjieZe/GMR) for real-time motion retargeting. After you can successfully run GMR with your MoCap, it would be very easy to modify our provided script to your setting.
 - The teleop script could be further improved. We are preparing to release the new version soon, and this old teleop script will be only used for your reference.
+
+---
+
+# Documentation Structure
+
+All comprehensive documentation has been organized in the `Documents/` directory:
+
+### Quick Access (Root Directory)
+- **README.md** - This file, project overview
+- **SETUP.md** - Setup and installation instructions
+- **ToDo.md** / **ToDo.zh.md** - Project roadmap and tasks
+- **CMG_PERFORMANCE_OPTIMIZATION.md** / **.zh.md** - Performance optimization guide
+
+### Detailed Documentation (Documents/)
+- **Project Documentation**: `ProjectDocumentation.md` / `.zh.md`
+- **Implementation Guides**: `CMG_IMPLEMENTATION_SUMMARY.md`, `IMPLEMENTATION_GUIDE.md`
+- **Technical Analysis**: `DOF_ANALYSIS.md`, `DOF_CONVERSION_COMPARISON.md`
+- **Robot Documentation**: `unitree_g1.md` / `.zh.md`
+- **Integration Guides**: `INTEGRATION_SUMMARY.md` / `.zh.md`
+
+See `Documents/README.md` for a complete index of all documentation files.
+
+---
 
 # Q & A
 

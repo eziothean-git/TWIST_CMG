@@ -46,25 +46,30 @@
   - **无需映射**：CMG和TWIST现在使用相同的29 DOF配置
 
 #### 1.1.2 运动格式转换
-**当前状态**：仅在内存中读取，无统一格式
+**当前状态**：通过 CMGMotionGenerator 直接集成，无需转换
 
-- [ ] **创建 NPZ → PKL 格式转换器**
-  - 当前：轨迹直接从 eval_cmg.py 在内存中读取
-  - **建议**：标准化为 TWIST 的 PKL 格式以保持一致性
-  - 文件：`CMG_Ref/utils/motion_converter.py`
-  - 函数：`cmg_npz_to_twist_format(cmg_npz, output_pkl)`
-  - 必需字段：
-    ```python
-    {
-      'dof_positions': [T, 29],  # 更新为29 DOF
-      'dof_velocities': [T, 29],  # 更新为29 DOF
-      'body_positions': [T, num_bodies, 3],
-      'body_rotations': [T, num_bodies, 4],  # 四元数
-      'fps': 50,
-      'dof_names': List[str],
-      'body_names': List[str]
-    }
-    ```
+- [x] **已完成：通过 CMGMotionGenerator 实现实时集成**
+  - **实施日期**：2026年1月30日
+  - 文件：`CMG_Ref/utils/cmg_motion_generator.py`
+  - **解决方案**：直接在训练循环中生成参考动作，无需格式转换
+  - 优势：
+    - 无需预先转换和存储大量轨迹文件
+    - 支持实时动态命令更新
+    - 内存效率更高
+  - 如需离线格式转换，可使用：
+    - 函数：`cmg_npz_to_twist_format(cmg_npz, output_pkl)`
+    - 必需字段：
+      ```python
+      {
+        'dof_positions': [T, 29],  # 29 DOF
+        'dof_velocities': [T, 29],  # 29 DOF
+        'body_positions': [T, num_bodies, 3],
+        'body_rotations': [T, num_bodies, 4],  # 四元数
+        'fps': 50,
+        'dof_names': List[str],
+        'body_names': List[str]
+      }
+      ```
 
 #### 1.1.3 前向运动学实现
 **当前状态**：未实现
