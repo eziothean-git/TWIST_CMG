@@ -2,30 +2,29 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 import sys
-import importlib.util
 from pathlib import Path
 
-# 动态加载CMG模块
-_cmg_module_cache = None
+# 设置路径以便导入CMG模块
+_cmg_path_setup = False
 
-def _get_cmg_class():
-    global _cmg_module_cache
-    if _cmg_module_cache is None:
+def _setup_cmg_path():
+    global _cmg_path_setup
+    if not _cmg_path_setup:
         cmg_ref_root = Path(__file__).parent
-        module_path = str(cmg_ref_root / "module" / "cmg.py")
-        spec = importlib.util.spec_from_file_location("cmg", module_path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError(f"无法加载CMG模块: {module_path}")
-        _cmg_module_cache = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(_cmg_module_cache)
-    return _cmg_module_cache.CMG
+        module_dir = str(cmg_ref_root / "module")
+        if module_dir not in sys.path:
+            sys.path.insert(0, module_dir)
+        if str(cmg_ref_root) not in sys.path:
+            sys.path.insert(0, str(cmg_ref_root))
+        _cmg_path_setup = True
 
-CMG = None  # 将在运行时设置
+_setup_cmg_path()
+from module.cmg import CMG
 
 class CMGTrainer:
     def __init__(
         self,
-        model,  # 改为不指定类型，因为CMG是动态加载的
+        model: CMG,
         lr: float,
         device: str = "cuda",
     ):
