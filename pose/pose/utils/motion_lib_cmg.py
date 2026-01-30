@@ -242,10 +242,13 @@ class MotionLibCMG:
     def _sample_initial_poses(self, n: int) -> torch.Tensor:
         """从训练数据中随机采样初始姿态"""
         init_motions = []
+        num_samples = len(self.samples)
         for _ in range(n):
-            sample_idx = np.random.randint(0, len(self.samples))
-            frame_idx = np.random.randint(0, len(self.samples[sample_idx]))
-            init_motions.append(self.samples[sample_idx][frame_idx])
+            # samples 是一个列表，每个元素是字典 {"motion": [T, 58], "command": [T-1, 3]}
+            sample_idx = np.random.randint(0, num_samples)
+            motion_seq = self.samples[sample_idx]["motion"]  # [T, 58]
+            frame_idx = np.random.randint(0, len(motion_seq))
+            init_motions.append(motion_seq[frame_idx])
         
         return torch.from_numpy(np.stack(init_motions)).float().to(self.device)
     
