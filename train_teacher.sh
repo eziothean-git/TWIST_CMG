@@ -64,7 +64,7 @@ fi
 echo "=========================================="
 
 # Run the training script
-python train.py --task "${task_name}" \
+python3 train.py --task "${task_name}" \
                 --proj_name "${proj_name}" \
                 --exptid "${exptid}" \
                 --device "${device}" \
