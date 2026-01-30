@@ -87,7 +87,7 @@ class MotionLibCMG:
         )
         
         # 初始化命令采样器（已通过sys.path导入）
-        self.command_sampler = CommandSampler()
+        self.command_sampler = CommandSampler(num_envs, device=device)
         
         # 状态追踪
         self.current_frame = torch.zeros(num_envs, dtype=torch.long, device=device)
