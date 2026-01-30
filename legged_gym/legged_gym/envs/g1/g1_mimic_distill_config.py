@@ -8,7 +8,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
                          50, 55, 60, 65, 70, 75, 80, 85, 90, 95,]
         
         num_envs = 4096
-        num_actions = 23
+        num_actions = 29  # Changed from 23 to 29 for full DOF control (including wrists)
         obs_type = 'priv' # 'student'
         n_priv_latent = 4 + 1 + 2*num_actions
         extra_critic_obs = 3
@@ -16,7 +16,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         
         n_proprio = 3 + 2 + 3*num_actions
         n_priv_mimic_obs = len(tar_obs_steps) * (8 + num_actions + 3*9) # Hardcode for now, 9 is base, 9 is the number of key bodies
-        n_mimic_obs = 8 + 23 # 23 for dof pos
+        n_mimic_obs = 8 + 29 # 29 for dof pos (updated from 23)
         n_priv_info = 3 + 1 + 3*9 + 2 + 4 + 1 + 2*num_actions # base lin vel, root height, key body pos, contact mask, priv latent
         history_len = 10
         
@@ -45,11 +45,13 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         rand_reset = True
         track_root = False
      
-        dof_err_w = [1.0, 0.8, 0.8, 1.0, 0.5, 0.5, # Left Leg
-                     1.0, 0.8, 0.8, 1.0, 0.5, 0.5, # Right Leg
-                     0.6, 0.6, 0.6, # waist yaw, roll, pitch
-                     0.8, 0.8, 0.8, 1.0, # Left Arm
-                     0.8, 0.8, 0.8, 1.0, # Right Arm
+        dof_err_w = [1.0, 0.8, 0.8, 1.0, 0.5, 0.5, # Left Leg (6)
+                     1.0, 0.8, 0.8, 1.0, 0.5, 0.5, # Right Leg (6)
+                     0.6, 0.6, 0.6, # Waist yaw, roll, pitch (3)
+                     0.8, 0.8, 0.8, 1.0, # Left Arm (4)
+                     0.5, 0.5, 0.5, # Left Wrist roll, pitch, yaw (3) - NEW
+                     0.8, 0.8, 0.8, 1.0, # Right Arm (4)
+                     0.5, 0.5, 0.5, # Right Wrist roll, pitch, yaw (3) - NEW
                      ]
         
 
@@ -94,6 +96,14 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
             'right_shoulder_roll_joint': -0.4,
             'right_shoulder_yaw_joint': 0.0,
             'right_elbow_joint': 1.2,
+            
+            # Wrist joints (6 DOF added for 29 DOF control)
+            'left_wrist_roll_joint': 0.0,
+            'left_wrist_pitch_joint': 0.0,
+            'left_wrist_yaw_joint': 0.0,
+            'right_wrist_roll_joint': 0.0,
+            'right_wrist_pitch_joint': 0.0,
+            'right_wrist_yaw_joint': 0.0,
         }
     
     class control(HumanoidMimicCfg.control):
@@ -105,6 +115,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
                      'waist': 150,
                      'shoulder': 40,
                      'elbow': 40,
+                     'wrist': 20,  # Wrist stiffness (NEW for 29 DOF)
                      }  # [N*m/rad]
         damping = {  'hip_yaw': 2,
                      'hip_roll': 2,
@@ -114,6 +125,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
                      'waist': 4,
                      'shoulder': 5,
                      'elbow': 5,
+                     'wrist': 1,  # Wrist damping (NEW for 29 DOF)
                      }  # [N*m/rad]  # [N*m*s/rad]
         
         action_scale = 0.5
@@ -128,8 +140,10 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         clip_actions = 5.0
     
     class asset(HumanoidMimicCfg.asset):
+        # Updated to 29 DOF URDF (includes wrist joints)
         # file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision.urdf'
-        file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision_with_fixed_hand.urdf'
+        # file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision_with_fixed_hand.urdf'  # Old 23 DOF
+        file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_29dof_rev_1_0.urdf'
         
         # for both joint and link name
         torso_name: str = 'pelvis'  # humanoid pelvis part
@@ -157,7 +171,15 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         # knee, hip roll: 0.489 * 1e-4 * 22.5**2 + 0.109 * 1e-4 * 4.5**2 + 0.738 * 1e-4 = 0.0251
         # wrist: 0.068 * 1e-4 * 25**2 = 0.00425
         
-        dof_armature = [0.0103, 0.0251, 0.0103, 0.0251, 0.003597, 0.003597] * 2 + [0.0103] * 3 + [0.003597] * 8
+        # Updated for 29 DOF: added 6 wrist joints (3 per arm)
+        dof_armature = (
+            [0.0103, 0.0251, 0.0103, 0.0251, 0.003597, 0.003597] * 2 +  # Legs (12)
+            [0.0103] * 3 +                                                 # Waist (3)
+            [0.003597] * 4 +                                               # Left arm (4)
+            [0.00425] * 3 +                                                # Left wrist (3) - NEW
+            [0.003597] * 4 +                                               # Right arm (4)
+            [0.00425] * 3                                                  # Right wrist (3) - NEW
+        )
         
         # dof_armature = [0.0, 0.0, 0.0, 0.0, 0.0, 0.001] * 2 + [0.0] * 3 + [0.0] * 8
         
