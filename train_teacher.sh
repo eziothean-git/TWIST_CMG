@@ -90,7 +90,7 @@ fi
 if [ "$bg_mode" = "bg" ]; then
     echo "  后台运行: 是"
 fi
-echo "==========================================""
+echo "=========================================="
 
 cd "${SCRIPT_DIR}/legged_gym/legged_gym/scripts"
 
