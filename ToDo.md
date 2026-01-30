@@ -438,190 +438,422 @@ For rapid prototyping, focus on these essential tasks first:
 
 This section outlines key improvements and design considerations for the CMG-TWIST integration project.
 
-### 1. DOF Unification
+### 1. Data Format & Joint Mapping (数据格式与关节映射)
 **Priority**: HIGH  
 **Effort**: High
 
-- [ ] **Unify DOF between CMG and TWIST systems**
-  - Current state: CMG model trained with 29 DOF, but G1 robot has only 23 DOF
-  - **Recommendation**: Standardize both systems to use G1's 23 DOF configuration
-  - Both systems should use G1 as the primary deployment platform
-  - Benefits:
-    - Reduces joint mapping complexity
-    - Eliminates potential errors from DOF conversion
-    - Ensures motion compatibility between training and deployment
+#### 1.1 29 → 23 DOF Joint Mapping (29 → 23 DOF 关节映射)
+**Status**: Need mapping or retraining
+
+- [ ] **Document CMG's 29-DOF and G1's 23-DOF configurations**
+  - Current state: CMG uses 29 DOF, G1 robot has 23 DOF
+  - **Recommendation**: Either:
+    - **Option A**: Write `map_cmg_to_g1()` function to convert 29→23 DOF
+    - **Option B**: Retrain CMG native on G1's 23 DOF (preferred for consistency)
+  - Mapping considerations:
+    - List all 29 CMG joints and corresponding G1 joints
+    - Identify unused joints (fingers, extra arm DOFs)
+    - Create joint index mapping table
+  - Benefits of retraining:
+    - Eliminates conversion errors
+    - CMG model matches deployment configuration
+    - Better motion quality on G1
   - Implementation:
-    - Retrain CMG model with G1's 23 DOF configuration
-    - Update all motion datasets to G1 DOF format
-    - Standardize joint ordering and naming conventions across both systems
+    - File: `CMG_Ref/utils/joint_mapping.py` (if choosing mapping)
+    - Or: Prepare G1 training data and retrain CMG (if choosing retraining)
+    - Validate in MuJoCo before deployment
 
-### 2. Enhanced Teacher Privileged Information
-**Priority**: HIGH  
-**Effort**: Medium
+#### 1.2 Motion Format Conversion (运动格式转换)
+**Status**: In-memory only, no unified format
 
-- [ ] **Add terrain height map to teacher observations**
-  - Current state: Limited terrain information in privileged observations
-  - **Recommendation**: Include detailed terrain information in teacher policy
-  - Options:
-    - **Option A**: Height map of area under robot feet (e.g., 1m x 1m grid with 0.05m resolution)
-    - **Option B**: Ray-casting based terrain sensing (multiple rays from robot base)
-  - Benefits:
-    - Better terrain adaptation during training
-    - More robust student policy through knowledge distillation
-    - Enables walking on complex terrains
-  - Implementation details:
-    - Add height map sensor to privileged observations
-    - Update observation space dimension in config
-    - Terrain sampling resolution: 20x20 grid points = 400 dims
-    - Alternatively: 16 ray-cast directions × 2 (distance + height) = 32 dims
-  - Suggested format:
+- [ ] **Create NPZ → PKL format converter**
+  - Current state: Trajectories read directly in memory from eval_cmg.py
+  - **Recommendation**: Standardize to TWIST's PKL format for consistency
+  - File: `CMG_Ref/utils/motion_converter.py`
+  - Function: `cmg_npz_to_twist_format(cmg_npz, output_pkl)`
+  - Required fields:
     ```python
-    # Height map approach
-    terrain_height_map: [batch, grid_size, grid_size]  # e.g., [batch, 20, 20]
-    
-    # Ray-casting approach
-    terrain_rays: [batch, num_rays, 2]  # distance and height for each ray
+    {
+      'dof_positions': [T, 23],
+      'dof_velocities': [T, 23],
+      'body_positions': [T, num_bodies, 3],
+      'body_rotations': [T, num_bodies, 4],  # Quaternions
+      'fps': 50,
+      'dof_names': List[str],
+      'body_names': List[str]
+    }
     ```
 
-### 3. Foot Contact and Torque Feedback
+#### 1.3 Forward Kinematics Implementation (前向运动学)
+**Status**: Not yet implemented
+
+- [ ] **Compute body transforms from joint angles**
+  - Use existing FK from `pose/pose/util_funcs/kinematics_model.py`
+  - Input: Joint positions [23 DOF]
+  - Output: Body positions + rotations for all bodies
+  - Integrate into motion converter
+  - Test: Compare computed vs. reference body positions
+
+#### 1.4 G1 Training Data Preparation (训练数据对齐)
+**Status**: Using original 29-DOF CMG model
+
+- [ ] **Prepare G1-specific dataset for CMG retraining**
+  - If Option B chosen: Retrain CMG with native 23-DOF support
+  - Data source: Extract from TWIST's existing motion library
+  - Processing:
+    - Convert TWIST PKL → CMG training format
+    - Compute velocity commands from root motion
+    - Apply data filtering (locomotion only)
+    - Compute statistics (mean, std, min, max)
+  - File: `CMG_Ref/dataloader/prepare_g1_data.py`
+  - Output: `cmg_g1_training_data.pt`
+  - Retraining:
+    - Update `train.py` with `motion_dim = 46` (23 pos + 23 vel)
+    - Train for 400 epochs
+    - Validate generated motions
+
+### 2. Integration & Real-time Pipeline (集成与实时管道)
 **Priority**: HIGH  
 **Effort**: Medium
 
-- [ ] **Implement foot contact feedback as proprioceptive observation**
-  - Add binary foot contact sensors for both feet
-  - Provide to both teacher and student policies
-  - Include in proprioceptive observation space
-  - Format: `foot_contacts: [batch, 2]` (left, right)
+#### 2.1 CMG-TWIST Bridge Class (CMG–TWIST 桥接类)
+**Status**: Direct environment integration, no abstraction
 
-- [ ] **Add joint torque proprioception**
-  - Current state: Only position and velocity are observed
-  - **Recommendation**: Include actual joint torques in proprioceptive observations
+- [ ] **Create CMGMotionGenerator class for motion generation**
+  - Current state: Direct trajectory generation in environment, no standalone interface
+  - File: `deploy_real/cmg_motion_generator.py`
+  - Class: `CMGMotionGenerator`
+  - Methods:
+    - `__init__(model_path, device='cuda')`: Load CMG model
+    - `generate_motion(vx, vy, yaw, duration)`: Generate motion sequence
+    - `get_next_frame()`: Retrieve next frame in real-time generation
+    - `update_command(vx, vy, yaw)`: Update velocity command on-the-fly
   - Benefits:
-    - Better force awareness
-    - Improved contact reasoning
-    - More robust control
-  - Implementation:
-    - Add torque measurements to observation: `joint_torques: [batch, 23]`
-    - Update observation dimension: `n_proprio += 23 + 2 = current + 25`
-    - Include in both teacher and student observations
-  - Normalization: Scale by maximum torque limits
+    - Decouples CMG from environment code
+    - Enables command changes during motion generation
+    - Reusable across different controllers
+  - Handles:
+    - Autoregressive motion generation
+    - Velocity command integration
+    - Frame buffering
 
-### 4. Enhanced Reward Function
+#### 2.2 High-Level Motion Server Integration (高层运动服务器集成)
+**Status**: Fixed speed commands, no CMG mode
+
+- [ ] **Integrate CMG generator into server_high_level_motion_lib.py**
+  - Current state: Speed commands are fixed (e.g., [1.5, 0, 0])
+  - **Recommendation**: Add CMG generation mode with command support
+  - New parameters:
+    - `--use_cmg`: Enable CMG motion generation
+    - `--cmg_model_path`: Path to trained CMG model
+    - `--use_cmg_command_input`: Enable command input (keyboard/gamepad/voice)
+  - Functionality:
+    - Generate motions from velocity commands
+    - Send to Redis buffer for low-level controller
+    - Support command switching during execution
+  - Implementation:
+    - Initialize CMGMotionGenerator at server startup
+    - Receive commands from input interface
+    - Generate motion frames at 50 Hz
+    - Write to shared buffer
+
+#### 2.3 Command Input Interface (命令输入与插值)
+**Status**: Fixed velocity commands only
+
+- [ ] **Implement smooth command input with interpolation**
+  - Current state: Velocity fixed at [1.5, 0, 0], no user input
+  - **Option A - Keyboard Control**:
+    - W/S: Forward/backward (vx)
+    - A/D: Left/right strafe (vy)
+    - Q/E: Rotate (yaw)
+    - +/-: Speed adjustment
+  - **Option B - Gamepad/Joystick**:
+    - Left stick: (vx, vy) analog control
+    - Right stick: yaw rotation
+    - Trigger buttons: speed ramp
+  - **Option C - Voice Commands**:
+    - "go forward", "turn left", "stop"
+    - Convert to velocity commands
+  - Smooth interpolation:
+    - Avoid sudden velocity changes
+    - Ramp speeds gradually over 0.2-0.5s
+    - Smooth transitions between commands
+
+#### 2.4 Real-time Generation Optimization (实时生成优化)
+**Status**: Batch generation at episode reset, no real-time adaptation
+
+- [ ] **Optimize inference speed and handle command changes**
+  - Current state: Generate 2s trajectory at episode start, static thereafter
+  - Issues:
+    - No support for command changes mid-motion
+    - Potential performance peaks
+    - No real-time responsiveness
+  - **Optimization targets**:
+    - Inference time: < 20ms per frame (50 Hz requirement)
+    - Enable command updates every 0.1-0.5s
+    - Pre-generate motion buffers (1-2 seconds ahead)
+  - Implementation:
+    - Profile current inference speed (cuda/cpu)
+    - Optimize if needed: quantization, TorchScript JIT
+    - Use motion buffer: maintain queue of next N frames
+    - Regenerate on command change or buffer depletion
+    - Smooth blending when transitioning between sequences
+  - Code structure:
+    ```python
+    class CMGMotionGenerator:
+        def __init__(self, model, buffer_size=100):  # ~2s at 50Hz
+            self.buffer = deque(maxlen=buffer_size)
+            self.current_cmd = [0, 0, 0]
+        
+        def get_next_frame(self):
+            if len(self.buffer) < buffer_size/2:
+                self._refill_buffer()
+            return self.buffer.popleft()
+        
+        def update_command(self, vx, vy, yaw):
+            # Smooth transition to new command
+            self._interpolate_command(vx, vy, yaw)
+            # Schedule buffer regeneration
+        
+        def _refill_buffer(self):
+            # Generate next N frames with current command
+            pass
+    ```
+
+### 3. Coordinate System & Testing (坐标系与测试)
 **Priority**: MEDIUM  
 **Effort**: Low-Medium
 
-- [ ] **Add traditional humanoid locomotion penalties**
-  - Current state: TWIST uses implicit rewards for agent movement
-  - **Recommendation**: Supplement with explicit velocity and angular velocity penalties
-  - Suggested reward components:
+#### 3.1 Coordinate System Alignment (坐标系对齐与转换)
+**Status**: Not discussed, critical for deployment
+
+- [ ] **Document and align coordinate frames**
+  - CMG frame: Robot-centric (forward=+X, left=+Y, up=+Z)
+  - TWIST frame: World frame with robot tracking
+  - **Required transformations**:
+    - Velocity command frame (input) → Robot frame (CMG input)
+    - CMG output (robot frame) → World frame (TWIST input)
+  - Implementation:
+    - File: `CMG_Ref/utils/frame_transforms.py`
+    - Functions:
+      - `cmd_to_robot_frame(v_world)`: Convert command to robot frame
+      - `motion_to_world_frame(motion_robot)`: Convert motion output
+    - Validation:
+      - Verify forward command moves robot in correct direction
+      - Test turning in place
+      - Validate lateral motion
+  - Testing:
+    - Visual inspection in MuJoCo
+    - Real robot deployment (tethered)
+
+#### 3.2 System Testing & Verification (系统测试与验证)
+**Status**: Only training process documented, no validation plan
+
+- [ ] **Comprehensive testing plan**
+  - **Simulation Testing**:
+    - Various velocity commands (forward, backward, strafe, turn)
+    - Command response times and smoothness
+    - Stress testing: sudden changes, max velocities, long duration
+    - Error tracking: deviation from expected trajectory
+    - Compare CMG-generated vs. MoCap reference motions
   
-    a. **Linear velocity tracking penalty**:
+  - **Physical Robot Testing** (after simulation passes):
+    - Tethered walking on flat ground
+    - Basic motion stability and safety
+    - Command responsiveness
+    - Robustness to disturbances
+    - Uneven terrain (if applicable)
+  
+  - **Safety Validation**:
+    - Joint angle limit enforcement
+    - Velocity/torque limits
+    - Fall detection
+    - Emergency stop functionality
+
+#### 3.3 Safety & Optimization Measures (安全与优化措施)
+**Status**: Basic joint tracking only, no safety/energy optimization
+
+- [ ] **Implement safety features and motion optimization**
+  - **Safety measures**:
+    - Emergency stop (kill switch)
+    - Joint angle hard limits with soft boundaries
+    - Velocity saturation (prevent over-speed)
+    - Torque/power limits
+    - Fall detection and recovery
+  
+  - **Motion Quality Optimization**:
+    - Tune CMG generation parameters
+    - Adjust TWIST tracking weights (reference: [508])
+    - Improve smoothness and naturalness
+    - Energy efficiency analysis
+  
+  - **Performance Optimization**:
+    - Reduce latency (target: < 50ms total)
+    - Optimize inference speed (target: < 20ms)
+    - Minimize jerk and discontinuities
+    - Profile critical paths
+
+### 4. Observation & Reward Improvements (奖励和观察改进)
+**Priority**: MEDIUM  
+**Effort**: Low-Medium
+
+#### 4.1 Foot Contact & Joint Torque Observations (足接触与关节扭矩观察)
+**Status**: Limited to position/velocity, no force feedback
+
+- [ ] **Add foot contact sensing as proprioceptive feedback**
+  - Current: Only joint pos/vel + limited privileged info
+  - Add binary foot contact sensors: `[batch, 2]` (left, right foot)
+  - Benefits:
+    - Better ground interaction awareness
+    - Improved gait phase detection
+    - More robust terrain adaptation
+  - Implementation:
+    - Use MuJoCo contact sensor or compute from contact forces
+    - Include in both teacher and student observations
+    - Normalize to [0, 1] range
+
+- [ ] **Include joint torque feedback in observations**
+  - Current: Missing actual torque information
+  - Add joint torques: `[batch, 23]` (all 23 DOF)
+  - Benefits:
+    - Force awareness for control
+    - Better impedance regulation
+    - Improved force sensing through policy
+  - Implementation:
+    - Extract from simulator: `data.qfrc_applied` or `data.qfrc_constraint`
+    - Normalize by maximum torque limits
+    - Include in proprioceptive observation
+    - Update observation dimension: `n_proprio += 23 + 2 = +25 dims`
+
+#### 4.2 Enhanced Reward Function (丰富奖励函数)
+**Status**: Only joint tracking, no explicit velocity/posture penalties
+
+- [ ] **Add comprehensive locomotion reward components**
+  - Current reward focuses on tracking (reference [508])
+  - **Recommended additions**:
+  
+    a. **Linear velocity tracking**:
     ```python
-    r_lin_vel = -w_lin * ||v_base - v_cmd||^2
-    # Suggested weight: w_lin = 1.0
-    # Reference: "Learning to Walk in Minutes Using Massively Parallel Deep RL" (Rudin et al., 2021)
+    r_lin_vel = -w_lin * ||v_base - v_cmd||²  # w_lin = 1.0
     ```
   
-    b. **Angular velocity tracking penalty**:
+    b. **Angular velocity tracking**:
     ```python
-    r_ang_vel = -w_ang * ||ω_base - ω_cmd||^2
-    # Suggested weight: w_ang = 0.5
-    # Reference: Same as above
+    r_ang_vel = -w_ang * ||ω_base - ω_cmd||²  # w_ang = 0.5
     ```
   
-    c. **Base orientation penalty** (keep torso upright):
+    c. **Base orientation (keep upright)**:
     ```python
-    r_orient = -w_orient * ||projected_gravity - [0, 0, -1]||^2
-    # Suggested weight: w_orient = 1.0
-    # Reference: "RMA: Rapid Motor Adaptation for Legged Robots" (Kumar et al., 2021)
+    r_orient = -w_orient * ||proj_gravity - [0,0,-1]||²  # w_orient = 1.0
     ```
   
     d. **Foot slip penalty**:
     ```python
-    r_slip = -w_slip * sum(||v_foot_xy|| * contact_binary)
-    # Suggested weight: w_slip = 0.1
-    # Reference: "Learning Quadrupedal Locomotion over Challenging Terrain" (Lee et al., 2020)
+    r_slip = -w_slip * Σ(||v_foot_xy|| * contact)  # w_slip = 0.1
     ```
   
-    e. **Action rate penalty** (delta between consecutive actions):
+    e. **Action rate penalty**:
     ```python
-    r_action_rate = -w_rate * ||action_t - action_{t-1}||^2
-    # Suggested weight: w_rate = 0.01
-    # Reference: "Walk These Ways" (Margolis et al., 2022)
+    r_action_rate = -w_rate * ||action_t - action_{t-1}||²  # w_rate = 0.01
     ```
-
+  
   - Implementation:
-    - Add these reward terms to `g1_mimic_distill_config.py`
-    - Tune weights through experimentation
-    - Monitor individual reward components in training logs
+    - Update `g1_mimic_distill_config.py` reward weights
+    - Add these terms to compute_reward() in environment
+    - Log individual components for debugging
+    - Tune weights through training iterations
 
-### 5. Gait Guidance for TWIST
-**Priority**: MEDIUM  
-**Effort**: Medium
+#### 4.3 Gait Phase Guidance (步态相位指导)
+**Status**: No explicit phase signal, implicit through future frames
 
-- [ ] **Add gait phase guidance to TWIST (similar to CMG)**
-  - Current state: TWIST tracks reference motion without explicit gait information
-  - **Recommendation**: Include gait phase/timing signals as in CMG
-  - Benefits:
-    - Better synchronization with reference motions
+- [ ] **Add gait phase input to guide policy**
+  - Current: TWIST infers gait implicitly from future reference frames
+  - **Benefits of explicit signal**:
+    - Better swing/stance synchronization
     - Improved foot placement timing
-    - More natural gait patterns
-  - Implementation options:
-    - **Option A**: Sine/cosine gait phase encoding
+    - More natural gait transitions
+  - **Implementation options**:
+    - **Option A - Sinusoidal phase** (per leg):
       ```python
-      gait_phase = [sin(2π * phase), cos(2π * phase)]  # 2 dims per leg
-      total_dims = 4  # left and right leg
+      phase_left = sin(2π * t * freq)   # Left leg phase
+      phase_right = sin(2π * t * freq + π)  # Right leg phase (offset)
+      # Add to observation: [batch, 4] (sin/cos for each leg)
       ```
-    - **Option B**: Discrete gait state (stance/swing)
+    - **Option B - Discrete gait state**:
       ```python
-      gait_state = [left_stance, left_swing, right_stance, right_swing]  # 4 dims
+      gait_state = [L_stance, L_swing, R_stance, R_swing]  # One-hot like
+      # Shape: [batch, 4]
       ```
-    - **Option C**: Contact schedule from reference motion
+    - **Option C - Future contact schedule**:
       ```python
-      contact_schedule = reference_contacts[t:t+future_horizon]  # [horizon, 2]
+      contact_schedule = future_ref_contacts[t:t+horizon]  # [batch, horizon, 2]
       ```
-  - Add to observation space for both teacher and student
-  - Update `n_proprio` dimension accordingly
+  - Add to observation space (both teacher and student)
+  - Update `n_proprio` or create separate gait observation group
 
-### 6. Configurable Terrain Generator
+### 5. Terrain Adaptation & Environment (地形适应与环境生成)
 **Priority**: HIGH  
 **Effort**: High
 
-- [ ] **Implement adjustable height map terrain generator**
-  - Current state: Training on flat ground only
-  - **Recommendation**: Create procedural terrain generator with adjustable difficulty
-  - Features to implement:
-  
-    a. **Terrain types**:
-    - Flat ground (baseline)
-    - Slopes (adjustable angle: 0-15°)
-    - Stairs (adjustable height: 5-15cm, depth: 20-40cm)
-    - Random rough terrain (Perlin noise-based)
-    - Stepping stones
-    - Mixed terrain curriculum
-  
-    b. **Friction variation**:
+#### 5.1 Enhanced Teacher Terrain Information (增强特权地形信息)
+**Status**: Flat terrain only, no terrain-aware training
+
+- [ ] **Add terrain height map to teacher observations**
+  - Current: No terrain information in privileged observations
+  - Benefits:
+    - Better terrain adaptation during training
+    - More robust student policy via distillation
+    - Enables complex terrain walking
+  - **Option A - Height map approach**:
     ```python
-    friction_range = [0.4, 1.2]  # Low to high friction
-    # Randomly sample friction per terrain patch
-    # Reference typical values: concrete ~0.7, ice ~0.1, rubber ~1.0
+    # Grid-based terrain sampling
+    terrain_height_map: [batch, grid_size, grid_size]  # e.g., 20×20
+    # Sample area under/ahead of robot (1m × 1m with 0.05m resolution)
+    ```
+  - **Option B - Ray-casting approach**:
+    ```python
+    # Directional terrain sensing
+    terrain_rays: [batch, num_rays, 2]  # distance + height for each ray
+    # 16 rays × 2 = 32 dims (more efficient)
+    ```
+  - Implementation:
+    - Add height map sensor to privileged observations
+    - Update observation space in training config
+    - Include terrain features in teacher policy input
+    - Ensure student can eventually access similar info
+
+#### 5.2 Configurable Terrain Generator (可配置地形生成器)
+**Status**: Flat ground only, no procedural generation
+
+- [ ] **Implement procedural terrain with difficulty curriculum**
+  - Current: All training on flat terrain, no complexity variation
+  - **Terrain types to support**:
+    - Flat ground (baseline)
+    - Slopes (0-15° adjustable)
+    - Stairs (5-15cm height, 20-40cm depth)
+    - Random rough terrain (Perlin noise)
+    - Stepping stones
+    - Mixed terrain combinations
+  
+  - **Friction variation**:
+    ```python
+    friction_range = [0.4, 1.2]  # Low (ice ~0.1) to high (rubber ~1.0)
+    # Randomize per terrain patch for domain randomization
     ```
   
-    c. **Terrain difficulty curriculum**:
+  - **Difficulty curriculum**:
     ```python
-    # Progressively increase difficulty during training
-    # Keys represent training iteration numbers
     difficulty_schedule = {
-        0: "flat",           # Iterations 0-2k
-        2000: "low_slopes",  # Iterations 2k-5k
-        5000: "stairs",      # Iterations 5k-10k
-        10000: "rough",      # Iterations 10k-15k
-        15000: "mixed"       # Iterations 15k+
+        0: "flat",           # Iter 0-2k
+        2000: "low_slopes",  # Iter 2k-5k
+        5000: "stairs",      # Iter 5k-10k
+        10000: "rough",      # Iter 10k-15k
+        15000: "mixed"       # Iter 15k+
     }
     ```
   
   - Implementation:
-    - File: `legged_gym/legged_gym/utils/terrain_generator.py`
+    - File: `legged_gym/legged_gym/envs/terrain_generator.py`
     - Class: `ProceduralTerrainGenerator`
     - Methods:
       - `generate_flat_terrain()`
@@ -629,26 +861,125 @@ This section outlines key improvements and design considerations for the CMG-TWI
       - `generate_stairs_terrain(step_height, step_depth)`
       - `generate_rough_terrain(roughness, frequency)`
       - `generate_mixed_terrain(difficulty_level)`
-    - Configuration:
+    - Configuration structure:
       ```python
       terrain_config = {
-          "terrain_type": "mixed",  # flat, slope, stairs, rough, mixed
+          "terrain_type": "mixed",
           "terrain_size": [10.0, 10.0],  # meters
-          "horizontal_scale": 0.05,  # resolution
-          "vertical_scale": 0.005,   # height precision
-          "slope_threshold": 0.75,   # max slope angle
+          "horizontal_scale": 0.05,      # resolution
+          "vertical_scale": 0.005,       # height precision
+          "slope_threshold": 0.75,       # max slope angle
           "friction_range": [0.5, 1.0],
           "restitution_range": [0.0, 0.3],
           "curriculum_enabled": True,
-          "difficulty_level": 0.5  # 0.0 = easy, 1.0 = hard
+          "difficulty_level": 0.5  # 0.0=easy, 1.0=hard
       }
       ```
   
   - Integration with training:
     - Add terrain config to `g1_mimic_distill_config.py`
-    - Generate new terrains periodically or per episode
+    - Generate new terrains per episode or periodically
     - Include terrain parameters in privileged information
-    - Randomize terrain properties for domain randomization
+    - Apply domain randomization (friction, restitution)
+
+#### 5.3 Training Data Alignment & DOF Consistency (训练数据对齐与 DOF 一致性)
+**Status**: CMG uses 29 DOF, suggestion to retrain on G1's 23 DOF
+
+- [ ] **Decide between mapping vs. retraining**
+  - **Option A - Mapping approach** (faster, short-term):
+    - Implement 29→23 DOF conversion function
+    - Handle unused joints (fingers, extra arm DOFs)
+    - Pro: Reuse existing CMG model
+    - Con: Conversion errors may accumulate
+  
+  - **Option B - Retraining** (recommended, long-term):
+    - Prepare G1-specific dataset from TWIST motion library
+    - Retrain CMG with native 23 DOF support
+    - Pro: Better motion quality, no conversion overhead
+    - Con: Requires training time (~1-2 weeks)
+    - **Strongly recommended** for production deployment
+  
+  - **Recommendation**: Start with Option A for quick testing, then do Option B after initial validation
+
+- [ ] **Do NOT add terrain complexity until DOF is unified**
+  - Reason: Mapping errors could compound with terrain difficulty
+  - Wait for Option B (retraining) before adding complex terrain
+  - Testing order:
+    1. DOF mapping/retraining + flat terrain validation
+    2. Then introduce slope/stair/rough terrain
+    3. Finally train with mixed terrain curriculum
+
+---
+
+## Phase 6: Documentation & Deployment (项目文档和部署)
+**Priority**: MEDIUM  
+**Effort**: Medium
+
+### 6.1 Integration Documentation (集成文档完善)
+**Status**: Partial documentation, missing complete integration guide
+
+- [ ] **Write comprehensive integration and setup guide**
+  - Complete installation instructions (dependencies, versions)
+  - Step-by-step integration tutorial
+  - Configuration parameter documentation
+  - Troubleshooting guide with common issues
+  - Debug techniques and performance profiling
+
+- [ ] **Create API documentation**
+  - Document CMGMotionGenerator class
+  - Document motion converter functions
+  - Document coordinate transformation functions
+  - Add type hints and docstrings
+  - Generate reference documentation
+
+- [ ] **Develop usage examples**
+  - Example: Keyboard control for motion generation
+  - Example: Joystick-based command input
+  - Example: Batch motion conversion
+  - Example: Real-time command updating
+  - Example: Performance monitoring
+
+### 6.2 Deployment Package & Scripts (部署脚本和依赖打包)
+**Status**: Deployment section not yet discussed
+
+- [ ] **Create deployment scripts**
+  - One-command setup script for development
+  - Installation script for production
+  - Configuration file templates
+  - Launch scripts (server, client, etc.)
+  - Environment variable setup
+
+- [ ] **Package and organize dependencies**
+  - Update main requirements.txt with all dependencies
+  - Create requirements files by component:
+    - `requirements_cmg.txt` (CMG and conversion)
+    - `requirements_twist.txt` (TWIST training)
+    - `requirements_deploy.txt` (deployment only)
+  - Test installation on clean system
+  - Document Python version compatibility (3.8+)
+
+- [ ] **Create Docker container** (optional but recommended)
+  - Dockerfile with all dependencies
+  - docker-compose.yml for multi-container setup
+  - Volume mounts for models and data
+  - Environment variable configuration
+  - Test image build and runtime
+
+### 6.3 Coordinate System & Format Alignment (坐标与频率对齐)
+**Status**: Frequency aligned (50 Hz), coordinates not yet addressed
+
+- [ ] **Document coordinate frame alignment**
+  - Reference: ProjectDocumentation.zh.md mentions 50 Hz frequency
+  - Document CMG's robot-centric frame
+  - Document TWIST's world frame
+  - Explain any frame conversions needed
+  - Create visual diagrams if possible
+
+- [ ] **Ensure motion format compatibility**
+  - Confirm 50 Hz synchronization between CMG and TWIST
+  - Document PKL format fields and requirements
+  - Validate NPZ to PKL conversion
+  - Test round-trip conversion quality
 
 ---
 
@@ -661,6 +992,6 @@ For questions or issues during integration:
 
 ---
 
-**Document Version**: 1.0  
-**Last Updated**: 2026-01-29  
-**Status**: Initial integration plan
+**Document Version**: 2.0  
+**Last Updated**: 2026-01-30  
+**Status**: Comprehensive integration plan with all phases defined
