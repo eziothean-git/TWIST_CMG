@@ -104,26 +104,33 @@
 **优先级**：HIGH  
 **工作量**：Medium
 
-#### 2.1.1 CMG-TWIST 桥接类
-**当前状态**：直接环境集成，无独立抽象
+#### 2.1.1 CMG-TWIST 桥接类 ✅ **已完成**
+**当前状态**：✅ 高效双模式实现完成
 
-- [ ] **创建 CMGMotionGenerator 类用于动作生成**
-  - 当前：直接在环境中生成轨迹，无独立接口
-  - 文件：`deploy_real/cmg_motion_generator.py`
+- [x] **已完成：CMGMotionGenerator 类**
+  - **实施日期**：2026年1月30日
+  - 文件：`CMG_Ref/utils/cmg_motion_generator.py`
   - 类名：`CMGMotionGenerator`
-  - 方法：
-    - `__init__(model_path, device='cuda')`：加载 CMG 模型
-    - `generate_motion(vx, vy, yaw, duration)`：生成动作序列
-    - `get_next_frame()`：实时检索下一帧
-    - `update_command(vx, vy, yaw)`：动作生成时更新速度命令
-  - 优势：
-    - 将 CMG 与环境代码解耦
-    - 启用动作生成过程中的命令变更
-    - 跨不同控制器可重用
-  - 处理：
-    - 自回归动作生成
-    - 速度命令集成
-    - 帧缓冲
+  - **双模式支持**：
+    - **预生成模式 (Pregenerated)**：批量生成完整轨迹，用于训练冷启动
+    - **实时推理模式 (Realtime)**：自回归生成+缓冲区，用于动态命令跟踪
+  - 主要方法：
+    - `__init__(model_path, num_envs, mode, ...)`：初始化生成器
+    - `reset(env_ids, init_motion, commands)`：重置环境状态
+    - `get_motion(env_ids)`：获取参考动作 (dof_pos, dof_vel)
+    - `update_commands(commands, env_ids)`：更新速度命令
+    - `switch_mode(new_mode)`：动态切换工作模式
+    - `get_performance_stats()`：性能统计
+  - **性能优化**：
+    - 支持4096并行环境
+    - 批量自回归生成
+    - 预计算归一化统计
+    - 智能缓冲区管理
+  - **附加工具**：
+    - `CommandSmoother`: 命令平滑器
+    - `CommandSampler`: 多样化命令采样
+  - 测试脚本：`CMG_Ref/test_motion_generator.py`
+  - 集成文档：`CMG_Ref/utils/README_INTEGRATION.md`
 
 #### 2.1.2 高层运动服务器集成
 **当前状态**：固定速度命令，无 CMG 模式
