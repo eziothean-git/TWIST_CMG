@@ -109,15 +109,28 @@ class HumanoidMimic(HumanoidChar):
         self._motion_time_offsets[env_ids] = motion_times
         
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
-        root_pos[:, 2] += self.cfg.motion.height_offset
         
-        self._ref_root_pos[env_ids] = root_pos
-        self._ref_root_rot[env_ids] = root_rot
-        self._ref_root_vel[env_ids] = root_vel
-        self._ref_root_ang_vel[env_ids] = root_ang_vel
+        # CMG模式：只有dof_pos和dof_vel有效，root和body信息使用默认值
+        if root_pos is None:
+            # 使用默认站立姿态的root信息
+            self._ref_root_pos[env_ids] = self.base_init_state[:3].unsqueeze(0).expand(n, -1).clone()
+            self._ref_root_pos[env_ids, 2] += self.cfg.motion.height_offset
+            self._ref_root_rot[env_ids] = self.base_init_state[3:7].unsqueeze(0).expand(n, -1).clone()
+            self._ref_root_vel[env_ids] = 0.0
+            self._ref_root_ang_vel[env_ids] = 0.0
+        else:
+            root_pos[:, 2] += self.cfg.motion.height_offset
+            self._ref_root_pos[env_ids] = root_pos
+            self._ref_root_rot[env_ids] = root_rot
+            self._ref_root_vel[env_ids] = root_vel
+            self._ref_root_ang_vel[env_ids] = root_ang_vel
+        
         self._ref_dof_pos[env_ids] = dof_pos
         self._ref_dof_vel[env_ids] = dof_vel
-        self._ref_body_pos[env_ids] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
+        
+        # CMG模式：body_pos为None，不更新_ref_body_pos（或使用FK计算）
+        if body_pos is not None:
+            self._ref_body_pos[env_ids] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
     
     def _get_motion_times(self, env_ids=None):
         if env_ids is None:
@@ -130,16 +143,25 @@ class HumanoidMimic(HumanoidChar):
         motion_ids = self._motion_ids
         motion_times = self._get_motion_times()
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
-        root_pos[:, 2] += self.cfg.motion.height_offset
-        root_pos[:, :2] += self.episode_init_origin[:, :2]
         
-        self._ref_root_pos[:] = root_pos
-        self._ref_root_rot[:] = root_rot
-        self._ref_root_vel[:] = root_vel
-        self._ref_root_ang_vel[:] = root_ang_vel
+        # CMG模式：只有dof_pos和dof_vel有效
+        if root_pos is None:
+            # 保持当前root状态，只更新dof
+            pass
+        else:
+            root_pos[:, 2] += self.cfg.motion.height_offset
+            root_pos[:, :2] += self.episode_init_origin[:, :2]
+            self._ref_root_pos[:] = root_pos
+            self._ref_root_rot[:] = root_rot
+            self._ref_root_vel[:] = root_vel
+            self._ref_root_ang_vel[:] = root_ang_vel
+        
         self._ref_dof_pos[:] = dof_pos
         self._ref_dof_vel[:] = dof_vel
-        self._ref_body_pos[:] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
+        
+        # CMG模式：body_pos为None，不更新_ref_body_pos
+        if body_pos is not None:
+            self._ref_body_pos[:] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
             
     def _reset_root_states(self, env_ids, root_vel=None, root_quat=None, root_pos=None, root_ang_vel=None):
         """ Resets ROOT states position and velocities of selected environmments
