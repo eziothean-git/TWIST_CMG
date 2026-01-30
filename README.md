@@ -7,6 +7,27 @@
 ![Banner for TWIST](./assets/TWIST.png)
 
 
+## ⚡ Quick Start (CMG Mode - No Motion Capture Data Required)
+
+This repository now uses **CMG (Conditional Motion Generator)** to generate reference motions from velocity commands, eliminating the need for motion capture data during cold-start training.
+
+**Test CMG integration:**
+```bash
+python test_cmg_integration.py
+```
+
+**Start training:**
+```bash
+bash train_teacher.sh test_cmg cuda:0
+```
+
+**What's different:**
+- ✅ No mocap data needed for cold-start training
+- ✅ CMG generates reference motions from velocity commands (vx, vy, yaw)
+- ✅ Direct locomotion training without teleoperation data
+- ✅ Optimized for 4096 parallel environments
+
+
 
 
 ```bibtex

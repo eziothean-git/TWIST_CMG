@@ -318,7 +318,12 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         key_bodies = ["left_rubber_hand", "right_rubber_hand", "left_ankle_roll_link", "right_ankle_roll_link", "left_knee_link", "right_knee_link", "left_elbow_link", "right_elbow_link", "head_mocap"] # 9 key bodies
         upper_key_bodies = ["left_rubber_hand", "right_rubber_hand", "left_elbow_link", "right_elbow_link", "head_mocap"]
         
-        motion_file = f"{LEGGED_GYM_ROOT_DIR}/motion_data_configs/twist_dataset.yaml"
+        # CMG配置 - 使用CMG生成参考动作
+        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/runs/cmg_20260123_194851/cmg_final.pt"
+        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/dataloader/cmg_training_data.pt"
+        cmg_mode = 'pregenerated'  # 预生成模式，适合训练初期
+        cmg_preload_duration = 500  # 预生成500帧 (10秒 @ 50fps)
+        cmg_buffer_size = 100  # 实时模式缓冲区大小（预生成模式不使用）
         
         reset_consec_frames = 30
     

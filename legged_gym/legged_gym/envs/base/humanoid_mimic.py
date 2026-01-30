@@ -10,7 +10,7 @@ from .humanoid_mimic_config import HumanoidMimicCfg
 from .humanoid_char import HumanoidChar, convert_to_global_root_body_pos, convert_to_local_root_body_pos
 
 from pose.utils import torch_utils
-from pose.utils.motion_lib_pkl import MotionLib
+from pose.utils.motion_lib_cmg import create_motion_lib_cmg
 
 import time
 from termcolor import cprint
@@ -63,7 +63,13 @@ class HumanoidMimic(HumanoidChar):
         self._init_motion_buffers()
         
     def _load_motions(self):
-        self._motion_lib = MotionLib(motion_file=self.cfg.motion.motion_file, device=self.device)
+        """使用CMG生成参考动作"""
+        cprint("[HumanoidMimic] 使用CMG生成参考动作", "green")
+        self._motion_lib = create_motion_lib_cmg(
+            cfg=self.cfg,
+            num_envs=self.num_envs,
+            device=self.device
+        )
         return
     
     def _init_motion_buffers(self):
