@@ -84,6 +84,11 @@ class HumanoidMimic(HumanoidChar):
         self._ref_dof_pos = torch.zeros_like(self.dof_pos)
         self._ref_dof_vel = torch.zeros_like(self.dof_vel)
         
+        # CMG模式不提供body_pos参考，因此禁用基于body_pos的termination
+        # 通过检查motion_lib类型来判断
+        from pose.utils.motion_lib_cmg import MotionLibCMG
+        self._has_body_pos_ref = not isinstance(self._motion_lib, MotionLibCMG)
+        
         self._dof_err_w = self.cfg.env.dof_err_w
         if self._dof_err_w is None:
             self._dof_err_w = torch.ones(self.num_dof, device=self.device, dtype=torch.float)
@@ -336,7 +341,8 @@ class HumanoidMimic(HumanoidChar):
         vel_too_large = torch.norm(self.root_states[:, 7:10], dim=-1) > 5.
         self.reset_buf |= vel_too_large
         
-        if self._pose_termination:
+        # CMG模式下没有body_pos参考，跳过基于body_pos的pose_termination
+        if self._pose_termination and self._has_body_pos_ref:
             body_pos = self.rigid_body_states[:, self._key_body_ids, 0:3] - self.rigid_body_states[:, 0:1, 0:3]
             tar_body_pos = self._ref_body_pos[:, self._key_body_ids] - self._ref_root_pos[:, None, :] 
             

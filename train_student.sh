@@ -1,23 +1,68 @@
-# Usage:
-# bash train_student.sh robot_name student_id teacher_id device
-# Example:
+#!/bin/bash
+# Student蒸馏训练脚本
+# 
+# 用法:
+#   bash train_student.sh <exptid> <teacher_exptid> [device] [num_envs] [mode]
+# 
+# 参数:
+#   exptid         - Student实验ID (必需)
+#   teacher_exptid - Teacher实验ID (必需)
+#   device         - GPU设备, 默认 cuda:0
+#   num_envs       - 环境数量, 默认不指定(使用config值), 可选: 32, 64, 128, 256, 512, 1024, 2048, 4096
+#   mode           - 运行模式, 默认normal, 可选: debug(32 envs + 可视化), headless
+#
+# 示例:
+#   bash train_student.sh student_v1 teacher_v1                      # 默认配置
+#   bash train_student.sh student_v1 teacher_v1 cuda:1               # 指定GPU
+#   bash train_student.sh student_v1 teacher_v1 cuda:0 256           # 256个环境
+#   bash train_student.sh student_v1 teacher_v1 cuda:0 32 debug      # debug模式
 
-
-# bash train_student.sh 0927_twist_rlbcstu 0927_twist_teacher cuda:0
-
+set -e
 
 exptid=${1}
-
 teacher_exptid=${2}
-
-device=${3}
+device=${3:-cuda:0}
+num_envs=${4:-0}
+mode=${5:-normal}
 
 task_name="g1_stu_rl"
-
 proj_name="g1_stu_rl"
+
+if [ -z "$exptid" ] || [ -z "$teacher_exptid" ]; then
+    echo "错误: 必须提供Student实验ID和Teacher实验ID"
+    echo "用法: bash train_student.sh <exptid> <teacher_exptid> [device] [num_envs] [mode]"
+    exit 1
+fi
 
 cd legged_gym/legged_gym/scripts
 
+# 构建命令参数
+extra_args=""
+
+# 处理运行模式
+if [ "$mode" = "debug" ]; then
+    extra_args="${extra_args} --debug"
+    echo "[INFO] Debug模式: 32环境 + 可视化 + 禁用wandb"
+fi
+
+# 处理环境数量覆盖
+if [ "$num_envs" -gt 0 ] 2>/dev/null; then
+    extra_args="${extra_args} --num_envs ${num_envs}"
+    echo "[INFO] 覆盖环境数量: ${num_envs}"
+fi
+
+echo "=========================================="
+echo "  TWIST Student 蒸馏训练"
+echo "=========================================="
+echo "  Student ID:  ${exptid}"
+echo "  Teacher ID:  ${teacher_exptid}"
+echo "  设备:        ${device}"
+echo "  任务:        ${task_name}"
+echo "  模式:        ${mode}"
+if [ "$num_envs" -gt 0 ] 2>/dev/null; then
+    echo "  环境数:      ${num_envs}"
+fi
+echo "=========================================="
 
 # Run the training script
 python train.py --task "${task_name}" \
@@ -25,6 +70,6 @@ python train.py --task "${task_name}" \
                 --exptid "${exptid}" \
                 --teacher_exptid "${teacher_exptid}" \
                 --device "${device}" \
+                ${extra_args}
                 # --resume \
-                # --debug
                 # --resumeid xxx
