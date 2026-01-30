@@ -72,14 +72,58 @@
       ```
 
 #### 1.1.3 前向运动学实现
-**当前状态**：未实现
+**当前状态**：✅ **已完成**
 
-- [ ] **从关节角度计算身体变换**
+- [x] **从关节角度计算身体变换**
   - 使用现有的 FK：`pose/pose/util_funcs/kinematics_model.py`
   - 输入：关节位置 [29 DOF]  # 更新为29 DOF
   - 输出：所有身体的位置和旋转
   - 集成到运动转换器中
   - 测试：比较计算的与参考身体位置
+  
+**实施详情**（2026-01-30）：
+  - **改进的FK模型** (`pose/pose/util_funcs/kinematics_model.py`)：
+    - 支持29 DOF (包含新增的手腕DOF)
+    - 动态关节数量检测
+    - 返回body位置和旋转四元数(wxyz格式)
+    - 支持速度计算 (雅可比矩阵)
+    - 坐标系变换到全局坐标
+  
+  - **FK集成工具** (`CMG_Ref/utils/fk_integration.py`)：
+    - `compute_body_transforms_from_dof()`: 从DOF计算body变换
+    - `npz_to_pkl_with_fk()`: 转换格式时包含FK计算
+    - `compare_fk_with_reference()`: 验证FK精度
+    - `validate_fk_implementation()`: 全面验证FK实现
+  
+  - **CMG生成器集成** (`CMG_Ref/utils/cmg_motion_generator.py`)：
+    - 新参数: `fk_model_path`, `enable_fk`
+    - 新方法: `get_motion_with_body_transforms()`
+    - 自动FK模型加载和验证
+    - 与现有预生成/实时模式兼容
+  
+  - **测试工具**：
+    - `pose/pose/util_funcs/test_kinematics_29dof.py`: 基础FK验证
+    - `CMG_Ref/example_fk_integration.py`: 集成示例和最佳实践
+  
+  - **适配29 DOF**：
+    - 关节重新索引: 从CMG顺序→URDF顺序
+    - 支持新增的手腕关节 (左右腕各3 DOF)
+    - 自动body名称映射
+  
+  - **输出格式**：
+    ```python
+    result = generator.get_motion_with_body_transforms()
+    # {
+    #     'dof_positions': [batch, 29],
+    #     'dof_velocities': [batch, 29],
+    #     'body_positions': [batch, 13, 3],  # 13个关键body
+    #     'body_rotations': [batch, 13, 4],  # 四元数 wxyz
+    #     'body_velocities': [batch, 13, 3],  # 可选
+    #     'body_angular_velocities': [batch, 13, 3]  # 可选
+    # }
+    ```
+
+
 
 #### 1.1.4 G1 训练数据准备
 **当前状态**：✅ 配置已对齐，CMG的29 DOF可直接使用

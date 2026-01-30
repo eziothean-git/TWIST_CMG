@@ -5,6 +5,8 @@ CMG Motion Generator for TWIST Integration
 2. 实时推理模式(realtime): 自回归生成，用于动态命令跟踪
 
 设计目标: 支持4096个并行环境的高效推理
+
+1.1.3 新增: 前向运动学(FK)集成 - 从关节角度计算body位置和旋转
 """
 
 import torch
@@ -14,6 +16,16 @@ from typing import Optional, Tuple, Dict, List
 from collections import deque
 import time
 
+try:
+    from fk_integration import (
+        compute_body_transforms_from_dof,
+        get_default_key_bodies,
+        validate_fk_implementation
+    )
+    FK_AVAILABLE = True
+except ImportError:
+    FK_AVAILABLE = False
+
 
 class CMGMotionGenerator:
     """
@@ -22,6 +34,8 @@ class CMGMotionGenerator:
     两种工作模式:
     - pregenerated: 预先生成完整轨迹序列，训练时直接采样
     - realtime: 实时自回归生成，支持动态命令更新
+    
+    1.1.3: 集成前向运动学 - 可选计算body位置和旋转
     """
     
     def __init__(
@@ -33,6 +47,8 @@ class CMGMotionGenerator:
         mode: str = 'pregenerated',  # 'pregenerated' or 'realtime'
         buffer_size: int = 100,      # 实时模式缓冲区大小 (帧数，约2秒@50Hz)
         preload_duration: int = 500, # 预生成模式的轨迹长度 (帧数，10秒@50Hz)
+        fk_model_path: Optional[str] = None,  # 新增: FK模型路径 (URDF/XML)
+        enable_fk: bool = False,  # 新增: 是否启用FK计算
     ):
         """
         Args:
@@ -43,6 +59,8 @@ class CMGMotionGenerator:
             mode: 'pregenerated' 或 'realtime'
             buffer_size: 实时模式下的帧缓冲大小
             preload_duration: 预生成模式下每个轨迹的长度
+            fk_model_path: FK模型路径 (URDF或XML) - 用于计算body变换
+            enable_fk: 是否启用FK计算
         """
         self.device = device
         self.num_envs = num_envs
@@ -62,6 +80,25 @@ class CMGMotionGenerator:
         self.motion_dim = self.stats["motion_dim"]  # 58 (29 pos + 29 vel)
         self.command_dim = self.stats["command_dim"]  # 3 (vx, vy, yaw)
         
+        # 初始化FK模型 (新增 1.1.3)
+        self.fk_model = None
+        self.enable_fk = enable_fk and FK_AVAILABLE
+        if enable_fk and fk_model_path:
+            try:
+                from pose.util_funcs.kinematics_model import KinematicsModel
+                self.fk_model = KinematicsModel(fk_model_path, device)
+                print(f"[CMGMotionGenerator] FK model loaded from {fk_model_path}")
+                print(f"  - Number of joints: {self.fk_model.num_joints}")
+                # 验证FK实现
+                validate_fk_implementation(self.fk_model, num_test_poses=5, device=device)
+            except Exception as e:
+                print(f"[CMGMotionGenerator] Warning: Failed to load FK model: {e}")
+                self.fk_model = None
+                self.enable_fk = False
+        
+        # 默认key bodies (如果使用FK)
+        self.key_bodies = get_default_key_bodies() if self.enable_fk else []
+        
         # 初始化状态
         self.current_motion = None  # [num_envs, 58]
         self.current_commands = None  # [num_envs, 3]
@@ -75,6 +112,7 @@ class CMGMotionGenerator:
             self.need_refill = torch.ones(num_envs, dtype=torch.bool, device=device)
         else:
             raise ValueError(f"Unknown mode: {mode}. Use 'pregenerated' or 'realtime'")
+        
         
         # 性能统计
         self.inference_times = deque(maxlen=100)
@@ -245,6 +283,7 @@ class CMGMotionGenerator:
         
         return trajectories
     
+    
     def get_motion(self, env_ids: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         获取当前帧的参考动作
@@ -269,6 +308,60 @@ class CMGMotionGenerator:
         dof_vel = motion[:, 29:]
         
         return dof_pos, dof_vel
+    
+    def get_motion_with_body_transforms(
+        self, 
+        env_ids: Optional[torch.Tensor] = None,
+        base_pos: Optional[torch.Tensor] = None,
+        base_rot: Optional[torch.Tensor] = None,
+    ) -> Dict[str, torch.Tensor]:
+        """
+        新增 1.1.3: 获取当前帧的参考动作和body变换
+        
+        从关节角度计算身体的全局位置和旋转
+        
+        Args:
+            env_ids: 要获取的环境ID [N] 或 None (所有环境)
+            base_pos: [N, 3] 基座位置 (默认零)
+            base_rot: [N, 4] 基座旋转 (默认单位四元数)
+        
+        Returns:
+            dict包含:
+                - 'dof_positions': [N, 29]
+                - 'dof_velocities': [N, 29]
+                - 'body_positions': [N, num_bodies, 3] (如果FK可用)
+                - 'body_rotations': [N, num_bodies, 4] (如果FK可用)
+        """
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+        
+        # 获取基础动作
+        dof_pos, dof_vel = self.get_motion(env_ids)
+        
+        result = {
+            'dof_positions': dof_pos,
+            'dof_velocities': dof_vel,
+        }
+        
+        # 计算body变换 (如果FK可用)
+        if self.fk_model is not None and self.enable_fk:
+            if base_pos is None:
+                base_pos = torch.zeros(len(env_ids), 3, device=self.device)
+            if base_rot is None:
+                base_rot = torch.zeros(len(env_ids), 4, device=self.device)
+                base_rot[:, 0] = 1.0  # 单位四元数
+            
+            try:
+                body_transforms = compute_body_transforms_from_dof(
+                    dof_pos, dof_vel, self.fk_model,
+                    base_pos, base_rot, self.key_bodies,
+                    device=self.device
+                )
+                result.update(body_transforms)
+            except Exception as e:
+                print(f"Warning: FK computation failed: {e}")
+        
+        return result
     
     def _get_motion_pregenerated(self, env_ids: torch.Tensor) -> torch.Tensor:
         """预生成模式: 从轨迹中索引"""
