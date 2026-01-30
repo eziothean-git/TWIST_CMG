@@ -211,8 +211,14 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         class scales:
             tracking_joint_dof = 0.6
             tracking_joint_vel = 0.2
-            tracking_root_pose = 0.6
-            tracking_root_vel = 1.0
+            # tracking_root_pose = 0.6  # CMG不提供root位置参考，注释掉
+            # tracking_root_vel = 1.0    # CMG不提供root速度参考，注释掉
+            
+            # ========== Locomotion奖励（新增）==========
+            tracking_lin_vel = 1.5        # 跟踪线速度命令（关键）
+            tracking_ang_vel = 1.0        # 跟踪角速度命令（关键）
+            # ==========================================
+            
             # tracking_keybody_pos = 0.6
             tracking_keybody_pos = 2.0
             

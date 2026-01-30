@@ -361,3 +361,32 @@ class G1MimicDistill(HumanoidMimic):
     
     def _reward_ankle_action(self):
         return torch.norm(self.action_history_buf[:, -1, [4, 5, 10, 11]], dim=1)
+
+    ############################################################################################################
+    ################################# Locomotion Reward Functions (New) #######################################
+    ############################################################################################################
+    
+    def _reward_tracking_lin_vel(self):
+        """
+        奖励base线速度接近命令（vx, vy）
+        关键：使机器人根据速度命令行走
+        """
+        # commands[:, 0] = vx (前进速度)
+        # commands[:, 1] = vy (侧向速度)
+        # base_lin_vel[:, :2] = 实际的xy速度
+        lin_vel_error = torch.sum(torch.square(
+            self.commands[:, :2] - self.base_lin_vel[:, :2]
+        ), dim=1)
+        return torch.exp(-lin_vel_error / 0.25)
+    
+    def _reward_tracking_ang_vel(self):
+        """
+        奖励base角速度接近命令（yaw）
+        关键：使机器人根据角速度命令转向
+        """
+        # commands[:, 2] = yaw (转向角速度)
+        # base_ang_vel[:, 2] = 实际的yaw角速度
+        ang_vel_error = torch.square(
+            self.commands[:, 2] - self.base_ang_vel[:, 2]
+        )
+        return torch.exp(-ang_vel_error / 0.25)
