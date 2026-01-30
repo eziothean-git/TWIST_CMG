@@ -11,8 +11,8 @@
 **当前状态**：
 - ✅ CMG 可从速度命令生成动作
 - ✅ TWIST 可在物理机器人上跟踪参考动作
+- ✅ DOF对齐完成（TWIST已更新为29 DOF配置）
 - ❌ 集成管道尚未建立
-- ❌ 关节映射需要定义
 - ❌ 端到端测试未执行
 
 ---
@@ -23,26 +23,27 @@
 **优先级**：HIGH  
 **工作量**：High
 
-#### 1.1.1 29 → 23 DOF 关节映射
-**当前状态**：需要映射或重新训练
+#### 1.1.1 29 DOF 配置对齐 ✅ **已完成**
+**当前状态**：✅ TWIST已更新为29 DOF配置
 
-- [ ] **列出 CMG 的 29-DOF 和 G1 的 23-DOF 配置**
-  - 当前：CMG 使用 29 DOF，G1 机器人有 23 DOF
-  - **建议方案**：二选一：
-    - **方案 A**：编写 `map_cmg_to_g1()` 函数进行 29→23 DOF 转换
-    - **方案 B**：在 G1 的 23 DOF 上重新训练 CMG（推荐）
-  - 映射考虑事项：
-    - 列出所有 29 个 CMG 关节及对应的 G1 关节
-    - 识别未使用的关节（手指、额外的臂部 DOF）
-    - 创建关节索引映射表
-  - 重新训练的优势：
-    - 消除转换错误
-    - CMG 模型与部署配置匹配
-    - 在 G1 上获得更好的动作质量
-  - 实现方式：
-    - 文件：`CMG_Ref/utils/joint_mapping.py`（若选择映射）
-    - 或：准备 G1 训练数据并重新训练 CMG（若选择重新训练）
-    - 在 MuJoCo 中验证映射后再部署
+- [x] **已完成：TWIST配置更新为29 DOF**
+  - **解决方案**：将TWIST从23 DOF更新为29 DOF以对齐CMG和实机
+  - **实施日期**：2026年1月30日
+  - **详细信息**：
+    - CMG输出：29 DOF（已训练完成）
+    - TWIST配置：从23 DOF更新为29 DOF
+    - 实机配置：29 DOF
+    - URDF文件：使用官方 `g1_29dof.urdf`（来自unitree_mujoco）
+  - **关节结构**（29 DOF）：
+    - 左腿：6 DOF（hip_pitch/roll/yaw, knee, ankle_pitch/roll）
+    - 右腿：6 DOF
+    - 腰部：3 DOF（waist_yaw/roll/pitch）
+    - 左臂：4 DOF（shoulder_pitch/roll/yaw, elbow）
+    - 左手腕：3 DOF（wrist_roll/pitch/yaw）✨ **新增**
+    - 右臂：4 DOF
+    - 右手腕：3 DOF ✨ **新增**
+  - **配置文件**：`legged_gym/legged_gym/envs/g1/g1_mimic_distill_config.py`
+  - **无需映射**：CMG和TWIST现在使用相同的29 DOF配置
 
 #### 1.1.2 运动格式转换
 **当前状态**：仅在内存中读取，无统一格式
@@ -55,8 +56,8 @@
   - 必需字段：
     ```python
     {
-      'dof_positions': [T, 23],
-      'dof_velocities': [T, 23],
+      'dof_positions': [T, 29],  # 更新为29 DOF
+      'dof_velocities': [T, 29],  # 更新为29 DOF
       'body_positions': [T, num_bodies, 3],
       'body_rotations': [T, num_bodies, 4],  # 四元数
       'fps': 50,
@@ -70,16 +71,18 @@
 
 - [ ] **从关节角度计算身体变换**
   - 使用现有的 FK：`pose/pose/util_funcs/kinematics_model.py`
-  - 输入：关节位置 [23 DOF]
+  - 输入：关节位置 [29 DOF]  # 更新为29 DOF
   - 输出：所有身体的位置和旋转
   - 集成到运动转换器中
   - 测试：比较计算的与参考身体位置
 
 #### 1.1.4 G1 训练数据准备
-**当前状态**：使用原始 29-DOF CMG 模型
+**当前状态**：✅ 配置已对齐，CMG的29 DOF可直接使用
 
-- [ ] **为 CMG 重新训练准备 G1 特定数据集**
-  - 若选择方案 B：用本地 23-DOF 支持重新训练 CMG
+- [x] **DOF配置已对齐**
+  - ✅ CMG使用29 DOF（已训练）
+  - ✅ TWIST使用29 DOF（已更新）
+  - ✅ 无需重新训练CMG
   - 数据源：从 TWIST 现有动作库中提取
   - 处理步骤：
     - 将 TWIST PKL 转换为 CMG 训练格式

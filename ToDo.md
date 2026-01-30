@@ -11,41 +11,49 @@ This document outlines the tasks needed to integrate the Conditional Motion Gene
 **Current State**:
 - ✅ CMG can generate motions from velocity commands
 - ✅ TWIST can track reference motions on physical robots
+- ✅ DOF alignment completed (TWIST updated to 29 DOF configuration)
 - ❌ Integration pipeline is not yet established
-- ❌ Joint mappings need to be defined
 - ❌ End-to-end testing not performed
 
 ---
 
 ## Phase 1: Data Format Alignment
 
-### 1.1 Joint Mapping
+### 1.1 DOF Configuration Alignment ✅ **COMPLETED**
 **Priority**: HIGH  
-**Effort**: Medium
+**Effort**: Medium  
+**Status**: ✅ Completed on 2026-01-30
 
-- [ ] **Task 1.1.1**: Document CMG's 29-DOF joint layout
-  - Map each of the 29 joints to body parts (hips, knees, ankles, etc.)
-  - Document joint order and naming convention
-  - Create a joint index reference document
+- [x] **Task 1.1.1**: ✅ TWIST updated to 29 DOF configuration
+  - **Solution**: Updated TWIST from 23 DOF to 29 DOF to align with CMG and real robot
+  - **Implementation**:
+    - CMG output: 29 DOF (already trained)
+    - TWIST config: Updated from 23 DOF to 29 DOF
+    - Real robot: 29 DOF
+    - URDF: Using official `g1_29dof.urdf` from unitree_mujoco repo
+  - **Joint Structure** (29 DOF):
+    - Left leg: 6 DOF (hip_pitch/roll/yaw, knee, ankle_pitch/roll)
+    - Right leg: 6 DOF
+    - Waist: 3 DOF (waist_yaw/roll/pitch)
+    - Left arm: 4 DOF (shoulder_pitch/roll/yaw, elbow)
+    - Left wrist: 3 DOF (wrist_roll/pitch/yaw) ✨ **New**
+    - Right arm: 4 DOF
+    - Right wrist: 3 DOF ✨ **New**
+  - **Config file**: `legged_gym/legged_gym/envs/g1/g1_mimic_distill_config.py`
+  - **No mapping needed**: CMG and TWIST now use identical 29 DOF configuration
 
-- [ ] **Task 1.1.2**: Document G1 robot's 23-DOF joint layout
-  - Cross-reference with `g1_mimic_distill_config.py`
-  - List joints: 6 per leg, 3 waist, 4 per arm
-  - Document joint names and order
+- [x] **Task 1.1.2**: ✅ Documented joint layout and order
+  - All 29 joints verified to match between CMG output, URDF, and TWIST config
+  - Joint order validated against official unitree_mujoco URDF
 
-- [ ] **Task 1.1.3**: Create joint mapping function
-  - File: `CMG_Ref/utils/joint_mapping.py`
-  - Function: `map_cmg_to_g1(cmg_motion) -> g1_motion`
-  - Handle DOF differences (29 → 23)
-  - Options:
-    - Drop unused joints (e.g., fingers, extra arm DOFs)
-    - Use subset of joints
-    - Or retrain CMG with G1's 23 DOFs
+- [x] **Task 1.1.3**: ✅ No mapping function needed
+  - Direct 1:1 correspondence between CMG and TWIST
+  - No DOF conversion required
 
-- [ ] **Task 1.1.4**: Validate joint mapping
-  - Visualize mapped motions in MuJoCo
-  - Check for discontinuities or invalid poses
-  - Test with sample CMG-generated motions
+- [x] **Task 1.1.4**: ✅ Joint alignment validated
+  - Verified joint names and order match across all components
+  - Armature parameters configured for all 29 DOF
+  - PD control parameters set for wrist joints
 
 ### 1.2 Motion Format Converter
 **Priority**: HIGH  
@@ -60,8 +68,8 @@ This document outlines the tasks needed to integrate the Conditional Motion Gene
   - Required fields for TWIST:
     ```python
     {
-      'dof_positions': [T, 23],  # After joint mapping
-      'dof_velocities': [T, 23],
+      'dof_positions': [T, 29],  # Updated to 29 DOF
+      'dof_velocities': [T, 29],  # Updated to 29 DOF
       'body_positions': [T, num_bodies, 3],  # Root + key bodies
       'body_rotations': [T, num_bodies, 4],  # Quaternions
       'fps': 50,
