@@ -19,6 +19,14 @@
 
 set -e
 
+# 激活conda环境
+source ~/.bashrc
+conda activate twist 2>/dev/null || echo "[WARN] conda环境twist未找到，使用当前环境"
+
+# 切换到脚本目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}/legged_gym/legged_gym/scripts"
+
 exptid=${1}
 teacher_exptid=${2}
 device=${3:-cuda:0}
@@ -33,8 +41,6 @@ if [ -z "$exptid" ] || [ -z "$teacher_exptid" ]; then
     echo "用法: bash train_student.sh <exptid> <teacher_exptid> [device] [num_envs] [mode]"
     exit 1
 fi
-
-cd legged_gym/legged_gym/scripts
 
 # 构建命令参数
 extra_args=""
