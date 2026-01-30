@@ -319,8 +319,15 @@ class HumanoidMimic(HumanoidChar):
         contact_force_termination = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
         self.reset_buf = contact_force_termination
         
-        # height_cutoff = self.root_states[:, 2] < self.cfg.rewards.termination_height
-        height_cutoff = torch.abs(self.root_states[:, 2] - self._ref_root_pos[:, 2]) > self.cfg.rewards.root_height_diff_threshold
+        # 高度检查：CMG模式使用绝对高度，mocap模式使用相对高度
+        if self._has_body_pos_ref:
+            # Mocap模式：与参考高度比较
+            height_cutoff = torch.abs(self.root_states[:, 2] - self._ref_root_pos[:, 2]) > self.cfg.rewards.root_height_diff_threshold
+        else:
+            # CMG模式：使用绝对高度阈值（太低=摔倒，太高=不正常）
+            height_too_low = self.root_states[:, 2] < 0.5  # 低于0.5m认为摔倒
+            height_too_high = self.root_states[:, 2] > 1.5  # 高于1.5m认为异常
+            height_cutoff = height_too_low | height_too_high
 
         roll_cut = torch.abs(self.roll) > self.cfg.rewards.termination_roll
         pitch_cut = torch.abs(self.pitch) > self.cfg.rewards.termination_pitch
