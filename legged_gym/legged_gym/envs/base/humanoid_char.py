@@ -180,8 +180,18 @@ class HumanoidChar(LeggedRobot):
         pass
                                                                                                                                                                                                                                                                                                                                                                    
     def _reset_dofs(self, env_ids, dof_pos, dof_vel):
-        self.dof_pos[env_ids] = dof_pos[env_ids] * torch_rand_float(0.8, 1.2, (len(env_ids), self.num_dof), device=self.device)
-        self.dof_vel[env_ids] = dof_vel[env_ids]
+        # 安全检查：确保dof值在合理范围内
+        dof_pos_safe = torch.clamp(dof_pos[env_ids], -3.14159, 3.14159)
+        dof_vel_safe = torch.clamp(dof_vel[env_ids], -20.0, 20.0)
+        
+        # 检查NaN
+        if torch.isnan(dof_pos_safe).any() or torch.isnan(dof_vel_safe).any():
+            print("[Warning] NaN in dof_pos/dof_vel during reset, using zeros")
+            dof_pos_safe = torch.nan_to_num(dof_pos_safe, nan=0.0)
+            dof_vel_safe = torch.nan_to_num(dof_vel_safe, nan=0.0)
+        
+        self.dof_pos[env_ids] = dof_pos_safe * torch_rand_float(0.8, 1.2, (len(env_ids), self.num_dof), device=self.device)
+        self.dof_vel[env_ids] = dof_vel_safe
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
         self.gym.set_dof_state_tensor_indexed(self.sim,

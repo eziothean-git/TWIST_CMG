@@ -112,6 +112,14 @@ class MotionLibCMG:
         self._generate_motion_pool()
         cprint(f"[MotionLibCMG] 动作池生成完成!", "green")
         
+        # 释放CMG模型以节省显存（生成完成后不再需要）
+        del self.model
+        del self.samples
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+        cprint(f"[MotionLibCMG] CMG模型已释放，显存已清理", "green")
+        
         # 安全运行时长（秒，用于termination检查）
         self._motion_lengths = torch.full(
             (num_motions,), self.safe_motion_length * self.dt, 
@@ -190,12 +198,26 @@ class MotionLibCMG:
         # 合并所有轨迹 [num_motions, motion_length+1, 58]
         self.motion_pool = torch.cat(all_trajectories, dim=0)
         
+        # 检查生成的数据是否有NaN或Inf
+        if torch.isnan(self.motion_pool).any():
+            cprint(f"[MotionLibCMG] Warning: NaN detected in generated motion pool!", "red")
+            self.motion_pool = torch.nan_to_num(self.motion_pool, nan=0.0)
+        if torch.isinf(self.motion_pool).any():
+            cprint(f"[MotionLibCMG] Warning: Inf detected in generated motion pool!", "red")
+            self.motion_pool = torch.clamp(self.motion_pool, -100.0, 100.0)
+        
         # 分离 dof_pos 和 dof_vel
         # motion_pool: [num_motions, T, 58] -> dof_pos [num_motions, T, 29], dof_vel [num_motions, T, 29]
         self.dof_pos_pool = self.motion_pool[..., :self.dof_dim]
         self.dof_vel_pool = self.motion_pool[..., self.dof_dim:self.dof_dim*2]
         
+        # Clamp关节值到合理范围
+        self.dof_pos_pool = torch.clamp(self.dof_pos_pool, -3.14159, 3.14159)
+        self.dof_vel_pool = torch.clamp(self.dof_vel_pool, -20.0, 20.0)
+        
         cprint(f"  - 动作池形状: {self.motion_pool.shape}", "green")
+        cprint(f"  - dof_pos范围: [{self.dof_pos_pool.min():.3f}, {self.dof_pos_pool.max():.3f}]", "green")
+        cprint(f"  - dof_vel范围: [{self.dof_vel_pool.min():.3f}, {self.dof_vel_pool.max():.3f}]", "green")
     
     def _sample_diverse_commands(self, n: int) -> torch.Tensor:
         """
@@ -394,6 +416,9 @@ class MotionLibCMG:
         """
         N = motion_ids.shape[0]
         
+        # 安全检查：确保motion_ids在有效范围内
+        motion_ids = torch.clamp(motion_ids, 0, self._num_motions - 1)
+        
         # 时间转换为帧索引
         frame_ids = (motion_times / self.dt).long()
         max_frame = self.motion_length
@@ -402,6 +427,16 @@ class MotionLibCMG:
         # 索引动作池
         dof_pos = self.dof_pos_pool[motion_ids, frame_ids]  # [N, 29]
         dof_vel = self.dof_vel_pool[motion_ids, frame_ids]  # [N, 29]
+        
+        # 安全检查：clamp极端值，防止仿真器崩溃
+        dof_pos = torch.clamp(dof_pos, -3.14159, 3.14159)  # 关节角度范围
+        dof_vel = torch.clamp(dof_vel, -20.0, 20.0)  # 关节速度范围
+        
+        # 检查并替换NaN
+        if torch.isnan(dof_pos).any() or torch.isnan(dof_vel).any():
+            cprint("[MotionLibCMG] Warning: NaN detected in dof_pos/dof_vel, replacing with zeros", "red")
+            dof_pos = torch.nan_to_num(dof_pos, nan=0.0)
+            dof_vel = torch.nan_to_num(dof_vel, nan=0.0)
         
         # 从velocity command获取期望速度（作为特权信息）
         # motion_commands: [num_motions, 3] = (vx, vy, yaw_rate)
