@@ -122,25 +122,30 @@ class G1MimicDistill(HumanoidMimic):
         
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
         
-        # CMG模式：只有dof_pos和dof_vel有效，root和body信息使用默认值
-        if root_pos is None:
-            # 使用默认站立姿态的root信息
-            self._ref_root_pos[env_ids] = self.base_init_state[:3].unsqueeze(0).expand(n, -1).clone()
-            self._ref_root_pos[env_ids, 2] += self.cfg.motion.height_offset
-            self._ref_root_rot[env_ids] = self.base_init_state[3:7].unsqueeze(0).expand(n, -1).clone()
-            self._ref_root_vel[env_ids] = 0.0
-            self._ref_root_ang_vel[env_ids] = 0.0
-        else:
+        # 处理root位置/旋转
+        if root_pos is not None:
+            # Mocap模式：有完整的root轨迹
             root_pos[:, 2] += self.cfg.motion.height_offset
             self._ref_root_pos[env_ids] = root_pos
             self._ref_root_rot[env_ids] = root_rot
+        else:
+            # CMG模式：使用默认站立姿态
+            self._ref_root_pos[env_ids] = self.base_init_state[:3].unsqueeze(0).expand(n, -1).clone()
+            self._ref_root_pos[env_ids, 2] += self.cfg.motion.height_offset
+            self._ref_root_rot[env_ids] = self.base_init_state[3:7].unsqueeze(0).expand(n, -1).clone()
+        
+        # root_vel/root_ang_vel: CMG模式下来自velocity command
+        if root_vel is not None:
             self._ref_root_vel[env_ids] = root_vel
             self._ref_root_ang_vel[env_ids] = root_ang_vel
+        else:
+            self._ref_root_vel[env_ids] = 0.0
+            self._ref_root_ang_vel[env_ids] = 0.0
         
         self._ref_dof_pos[env_ids] = dof_pos
         self._ref_dof_vel[env_ids] = dof_vel
         
-        # CMG模式：body_pos为None，不更新_ref_body_pos
+        # body_pos: CMG模式下为None
         if body_pos is not None:
             if body_pos.shape[1] != self._ref_body_pos[env_ids].shape[1]:
                 body_pos = g1_body_from_38_to_52(body_pos)
@@ -152,22 +157,24 @@ class G1MimicDistill(HumanoidMimic):
         motion_times = self._get_motion_times()
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
         
-        # CMG模式：只有dof_pos和dof_vel有效
-        if root_pos is None:
-            # 保持当前root状态，只更新dof
-            pass
-        else:
+        # 处理root位置/旋转
+        if root_pos is not None:
+            # Mocap模式：有完整的root轨迹
             root_pos[:, 2] += self.cfg.motion.height_offset
             root_pos[:, :2] += self.episode_init_origin[:, :2]
             self._ref_root_pos[:] = root_pos
             self._ref_root_rot[:] = root_rot
+        # CMG模式：root_pos=None，不更新位置
+        
+        # root_vel/root_ang_vel: CMG模式下来自velocity command
+        if root_vel is not None:
             self._ref_root_vel[:] = root_vel
             self._ref_root_ang_vel[:] = root_ang_vel
         
         self._ref_dof_pos[:] = dof_pos
         self._ref_dof_vel[:] = dof_vel
         
-        # CMG模式：body_pos为None，不更新_ref_body_pos
+        # body_pos: CMG模式下为None
         if body_pos is not None:
             if body_pos.shape[1] != self._ref_body_pos.shape[1]:
                 body_pos = g1_body_from_38_to_52(body_pos)
@@ -225,6 +232,20 @@ class G1MimicDistill(HumanoidMimic):
         return noise_scale_vec
             
     def _get_mimic_obs(self):
+        """
+        获取模仿学习观测
+        
+        CMG模式下的特权信息说明:
+        - root_vel/root_ang_vel: 来自velocity command，表示期望的运动方向
+        - root_pos/root_rot: 使用仿真器当前状态（CMG无法提供世界坐标轨迹）
+        - body_pos: 使用仿真器当前状态（CMG不提供FK）
+        - dof_pos/dof_vel: 来自CMG生成的参考动作
+        
+        返回:
+            priv_mimic_obs: Teacher用的特权motion观测
+            mimic_obs: Student用的motion观测（仅dof_pos）
+            cmg_obs_seq: CMG生成的dof序列
+        """
         num_steps = self._tar_obs_steps.shape[0]
         assert num_steps > 0, "Invalid number of target observation steps"
         motion_times = self._get_motion_times().unsqueeze(-1)
@@ -232,18 +253,23 @@ class G1MimicDistill(HumanoidMimic):
         motion_ids_tiled = torch.broadcast_to(self._motion_ids.unsqueeze(-1), obs_motion_times.shape)
         motion_ids_tiled = motion_ids_tiled.flatten()
         obs_motion_times = obs_motion_times.flatten()
+        n_flat = motion_ids_tiled.shape[0]
+        
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids_tiled, obs_motion_times)
         
-        # CMG模式：只有dof_pos和dof_vel有效，其他信息使用默认值或仿真器当前值
+        # CMG模式：root_pos/root_rot为None，使用仿真器当前状态
         if root_pos is None:
-            # 使用仿真器当前的root状态作为"参考"（实际上是自身状态）
-            # 这样priv_mimic_obs中的root信息就是当前状态
-            n_flat = motion_ids_tiled.shape[0]
             root_pos = self.root_states[:, :3].unsqueeze(1).expand(-1, num_steps, -1).reshape(n_flat, 3)
             root_rot = self.root_states[:, 3:7].unsqueeze(1).expand(-1, num_steps, -1).reshape(n_flat, 4)
+        
+        # CMG模式：root_vel/root_ang_vel来自velocity command（期望速度）
+        # 这是有效的特权信息：告诉Teacher期望的运动方向
+        if root_vel is None:
             root_vel = self.root_states[:, 7:10].unsqueeze(1).expand(-1, num_steps, -1).reshape(n_flat, 3)
             root_ang_vel = self.root_states[:, 10:13].unsqueeze(1).expand(-1, num_steps, -1).reshape(n_flat, 3)
-            # body_pos 使用当前仿真器的body位置
+        
+        # body_pos: 使用仿真器当前状态（CMG不提供）
+        if body_pos is None:
             body_pos = self.rigid_body_states[:, :, :3].unsqueeze(1).expand(-1, num_steps, -1, -1).reshape(n_flat, -1, 3)
         
         roll, pitch, yaw = euler_from_quaternion(root_rot)
@@ -266,24 +292,25 @@ class G1MimicDistill(HumanoidMimic):
         dof_pos = dof_pos.reshape(self.num_envs, num_steps, dof_pos.shape[-1])
         dof_vel = dof_vel.reshape(self.num_envs, num_steps, dof_vel.shape[-1])
      
-        # teacher v0
+        # teacher v0: 包含root高度、姿态、速度和key_body位置
+        # 注意：CMG模式下root_vel来自velocity command，是有效的特权信息
         priv_mimic_obs_buf = torch.cat((
-            root_pos[..., 2:3], # 1 dim
-            roll, pitch, yaw, # 3 dims
-            root_vel, # 3 dims
-            root_ang_vel[..., 2:3], # 1 dim, yaw only
-            dof_pos, # num_dof dims
-            whole_key_body_pos, # num_bodies * 3 dims
-        ), dim=-1) # shape: (num_envs, num_steps, 7 + num_dof + num_key_bodies * 3)
+            root_pos[..., 2:3], # 1 dim - 当前高度（从仿真器）
+            roll, pitch, yaw, # 3 dims - 当前姿态（从仿真器）
+            root_vel, # 3 dims - 期望速度（CMG: velocity command, mocap: 参考轨迹）
+            root_ang_vel[..., 2:3], # 1 dim - 期望yaw角速度
+            dof_pos, # num_dof dims - 参考关节位置（CMG生成）
+            whole_key_body_pos, # num_bodies * 3 dims - body位置（从仿真器）
+        ), dim=-1)
         
-        
-        # v6, align mocap
-        mimic_obs_buf = dof_pos[:, 0:1] # shape: (num_envs, 1, num_dof)
+        # v6, align mocap - Student只用第一帧的dof_pos
+        mimic_obs_buf = dof_pos[:, 0:1]
 
+        # CMG观测序列: dof_pos + dof_vel
         cmg_obs_seq = torch.cat((
             dof_pos,
             dof_vel,
-        ), dim=-1) # shape: (num_envs, num_steps, 2*num_dof)
+        ), dim=-1)
         
         return (
             priv_mimic_obs_buf.reshape(self.num_envs, -1),

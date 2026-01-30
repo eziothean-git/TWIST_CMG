@@ -113,25 +113,30 @@ class HumanoidMimic(HumanoidChar):
         
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
         
-        # CMG模式：只有dof_pos和dof_vel有效，root和body信息使用默认值
-        if root_pos is None:
-            # 使用默认站立姿态的root信息
-            self._ref_root_pos[env_ids] = self.base_init_state[:3].unsqueeze(0).expand(n, -1).clone()
-            self._ref_root_pos[env_ids, 2] += self.cfg.motion.height_offset
-            self._ref_root_rot[env_ids] = self.base_init_state[3:7].unsqueeze(0).expand(n, -1).clone()
-            self._ref_root_vel[env_ids] = 0.0
-            self._ref_root_ang_vel[env_ids] = 0.0
-        else:
+        # 处理root信息
+        if root_pos is not None:
+            # Mocap模式：有完整的root轨迹
             root_pos[:, 2] += self.cfg.motion.height_offset
             self._ref_root_pos[env_ids] = root_pos
             self._ref_root_rot[env_ids] = root_rot
+        else:
+            # CMG模式：使用默认站立姿态的root位置
+            self._ref_root_pos[env_ids] = self.base_init_state[:3].unsqueeze(0).expand(n, -1).clone()
+            self._ref_root_pos[env_ids, 2] += self.cfg.motion.height_offset
+            self._ref_root_rot[env_ids] = self.base_init_state[3:7].unsqueeze(0).expand(n, -1).clone()
+        
+        # root_vel/root_ang_vel: CMG模式下来自velocity command，mocap模式下来自参考动作
+        if root_vel is not None:
             self._ref_root_vel[env_ids] = root_vel
             self._ref_root_ang_vel[env_ids] = root_ang_vel
+        else:
+            self._ref_root_vel[env_ids] = 0.0
+            self._ref_root_ang_vel[env_ids] = 0.0
         
         self._ref_dof_pos[env_ids] = dof_pos
         self._ref_dof_vel[env_ids] = dof_vel
         
-        # CMG模式：body_pos为None，不更新_ref_body_pos（或使用FK计算）
+        # body_pos: CMG模式下为None，mocap模式下有值
         if body_pos is not None:
             self._ref_body_pos[env_ids] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
     
@@ -147,22 +152,24 @@ class HumanoidMimic(HumanoidChar):
         motion_times = self._get_motion_times()
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
         
-        # CMG模式：只有dof_pos和dof_vel有效
-        if root_pos is None:
-            # 保持当前root状态，只更新dof
-            pass
-        else:
+        # 处理root位置/旋转
+        if root_pos is not None:
+            # Mocap模式：有完整的root轨迹
             root_pos[:, 2] += self.cfg.motion.height_offset
             root_pos[:, :2] += self.episode_init_origin[:, :2]
             self._ref_root_pos[:] = root_pos
             self._ref_root_rot[:] = root_rot
+        # CMG模式：root_pos=None，不更新位置（保持初始值或由仿真器决定）
+        
+        # root_vel/root_ang_vel: CMG模式下来自velocity command
+        if root_vel is not None:
             self._ref_root_vel[:] = root_vel
             self._ref_root_ang_vel[:] = root_ang_vel
         
         self._ref_dof_pos[:] = dof_pos
         self._ref_dof_vel[:] = dof_vel
         
-        # CMG模式：body_pos为None，不更新_ref_body_pos
+        # body_pos: CMG模式下为None
         if body_pos is not None:
             self._ref_body_pos[:] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
             

@@ -6,9 +6,10 @@ MotionLibCMG: 使用CMG预生成参考动作的MotionLib实现
 2. 训练时从池中采样，不再实时生成
 3. 提供与MotionLib兼容的接口
 
-与原版mocap数据加载的区别:
-- 不包含body位置信息（需要FK或仿真器计算）
-- root信息从仿真器获取而非参考动作
+关键设计考虑:
+- 未来观测窗口: tar_obs_steps最大95步 = 1.9s，所以有效运行时间 = motion_length - 2s
+- 时间边界处理: 在接近边界时触发reset，而不是clamp
+- root/body信息: 从velocity command积分估计root_vel，使用FK计算body_pos
 """
 
 import os
@@ -41,7 +42,15 @@ class MotionLibCMG:
     
     初始化时生成动作池，训练时从池中采样
     提供与MotionLib兼容的接口
+    
+    关键设计:
+    - safe_motion_length: 实际可用长度 = motion_length - future_window (2s)
+    - 确保查询未来观测时不会超出边界
+    - 提供root_vel估计 (从velocity command)
     """
+    
+    # 未来观测窗口（秒），对应tar_obs_steps最大值
+    FUTURE_WINDOW_S = 2.0
     
     def __init__(
         self, 
@@ -75,9 +84,15 @@ class MotionLibCMG:
         self.fps = fps
         self.dt = 1.0 / fps
         
+        # 安全运行长度：预留未来观测窗口
+        self.future_window_frames = int(self.FUTURE_WINDOW_S * fps)
+        self.safe_motion_length = motion_length - self.future_window_frames
+        
         cprint(f"[MotionLibCMG] 初始化预生成动作库", "green")
         cprint(f"  - 动作池大小: {num_motions} 条轨迹", "green")
         cprint(f"  - 轨迹长度: {motion_length} 帧 ({motion_length / fps:.1f}s)", "green")
+        cprint(f"  - 安全长度: {self.safe_motion_length} 帧 ({self.safe_motion_length / fps:.1f}s)", "green")
+        cprint(f"  - 未来窗口: {self.future_window_frames} 帧 ({self.FUTURE_WINDOW_S}s)", "green")
         cprint(f"  - 环境数: {num_envs}", "green")
         cprint(f"  - 设备: {device}", "green")
         
@@ -97,12 +112,13 @@ class MotionLibCMG:
         self._generate_motion_pool()
         cprint(f"[MotionLibCMG] 动作池生成完成!", "green")
         
-        # 轨迹长度（帧数，转换为张量）
+        # 安全运行时长（秒，用于termination检查）
         self._motion_lengths = torch.full(
-            (num_motions,), motion_length, device=device, dtype=torch.float
+            (num_motions,), self.safe_motion_length * self.dt, 
+            device=device, dtype=torch.float
         )
         
-        # 存储每条轨迹对应的速度命令（用于调试/分析）
+        # 存储每条轨迹对应的速度命令
         # self.motion_commands 已在 _generate_motion_pool 中设置
     
     def _load_cmg_model(self, model_path: str, data_path: str):
@@ -297,22 +313,24 @@ class MotionLibCMG:
         return self._num_motions
     
     def get_total_length(self) -> float:
-        """返回所有动作的总时长（秒）"""
-        return self._num_motions * self.motion_length * self.dt
+        """返回所有动作的总时长（秒），使用安全长度"""
+        return self._num_motions * self.safe_motion_length * self.dt
     
     def get_motion_length(self, motion_ids) -> torch.Tensor:
         """
-        返回指定动作的长度（秒）
+        返回指定动作的安全运行长度（秒）
+        
+        注意：返回safe_motion_length，确保查询未来窗口时不会越界
         
         Args:
             motion_ids: 动作索引
         
         Returns:
-            lengths: 时长（秒）
+            lengths: 安全时长（秒）
         """
         if isinstance(motion_ids, int):
-            return self._motion_lengths[motion_ids] * self.dt
-        return self._motion_lengths[motion_ids] * self.dt
+            return self._motion_lengths[motion_ids]
+        return self._motion_lengths[motion_ids]
     
     def sample_motions(self, n: int, motion_difficulty=None) -> torch.Tensor:
         """
@@ -331,6 +349,8 @@ class MotionLibCMG:
         """
         为指定动作采样起始时间
         
+        注意：采样范围是[0, safe_motion_length)，确保运行时+未来窗口不会越界
+        
         Args:
             motion_ids: [n] 动作索引
         
@@ -338,8 +358,9 @@ class MotionLibCMG:
             times: [n] 起始时间（秒）
         """
         n = len(motion_ids)
-        # 随机采样帧索引，转换为时间
-        frame_ids = torch.randint(0, self.motion_length, (n,), device=self.device)
+        # 在安全范围内随机采样帧索引
+        max_frame = self.safe_motion_length
+        frame_ids = torch.randint(0, max_frame, (n,), device=self.device)
         return frame_ids.float() * self.dt
     
     def calc_motion_frame(
@@ -350,29 +371,55 @@ class MotionLibCMG:
         """
         计算指定时刻的动作帧
         
+        关于root信息的设计说明：
+        - CMG只输出关节状态(dof_pos, dof_vel)，不直接输出root轨迹
+        - root_vel/root_ang_vel: 从生成该motion时使用的velocity command获取
+          这是该轨迹的"期望速度"，作为Teacher的特权信息
+        - root_pos/root_rot: 返回None，因为CMG无法提供准确的世界坐标位置
+          环境应该使用仿真器的实际状态
+        - body_pos: 返回None，环境应该使用仿真器状态或FK计算
+        
         Args:
             motion_ids: [N] 动作索引
             motion_times: [N] 时间（秒）
         
         Returns:
-            root_pos: None (CMG不生成，由仿真器提供)
+            root_pos: None (CMG无法提供准确的世界坐标)
             root_rot: None
-            root_vel: None
-            root_ang_vel: None
+            root_vel: [N, 3] 期望速度 (来自velocity command)
+            root_ang_vel: [N, 3] 期望角速度 (来自velocity command)
             dof_pos: [N, 29] 关节位置
             dof_vel: [N, 29] 关节速度
-            body_pos: None (需要FK计算)
+            body_pos: None (需要FK或仿真器)
         """
+        N = motion_ids.shape[0]
+        
         # 时间转换为帧索引
         frame_ids = (motion_times / self.dt).long()
-        frame_ids = torch.clamp(frame_ids, 0, self.motion_length)
+        max_frame = self.motion_length
+        frame_ids = torch.clamp(frame_ids, 0, max_frame - 1)
         
         # 索引动作池
         dof_pos = self.dof_pos_pool[motion_ids, frame_ids]  # [N, 29]
         dof_vel = self.dof_vel_pool[motion_ids, frame_ids]  # [N, 29]
         
-        # CMG不生成root和body信息
-        return None, None, None, None, dof_pos, dof_vel, None
+        # 从velocity command获取期望速度（作为特权信息）
+        # motion_commands: [num_motions, 3] = (vx, vy, yaw_rate)
+        commands = self.motion_commands[motion_ids]  # [N, 3]
+        
+        # root_vel: 期望线速度（世界系，假设初始朝向为x轴正方向）
+        root_vel = torch.zeros(N, 3, device=self.device)
+        root_vel[:, 0] = commands[:, 0]  # vx
+        root_vel[:, 1] = commands[:, 1]  # vy
+        root_vel[:, 2] = 0.0  # vz
+        
+        # root_ang_vel: 期望角速度
+        root_ang_vel = torch.zeros(N, 3, device=self.device)
+        root_ang_vel[:, 2] = commands[:, 2]  # yaw_rate
+        
+        # root_pos, root_rot, body_pos: 返回None
+        # 环境需要从仿真器获取实际位置，或使用默认值
+        return None, None, root_vel, root_ang_vel, dof_pos, dof_vel, None
     
     def get_motion_names(self) -> List[str]:
         """返回动作名称列表"""
