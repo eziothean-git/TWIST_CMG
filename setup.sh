@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # -----------------------
-# TWIST one-shot setup (strict reset)
-# Place this file in repo root: TWIST-Docker/setup_twist.sh
+# TWIST_CMG one-shot setup (strict reset)
+# Place this file in repo root: TWIST_CMG/setup.sh
 #
 # Defaults:
 #   - Repo dir: inferred from script location
@@ -14,6 +14,9 @@ set -euo pipefail
 #   ISAAC_TAR=/path/to/IsaacGym_Preview_4_Package.tar.gz
 #   ENV_NAME=twist
 #   PYTHON_VER=3.8
+#
+# Example for local usage:
+#   ISAAC_TAR=/home/eziothean/下载/IsaacGym_Preview_4_Package.tar.gz bash setup.sh
 # -----------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,20 +32,21 @@ echo "[0] Repo dir: ${REPO_DIR}"
 echo "[0] Isaac Gym tar: ${ISAAC_TAR}"
 
 if [[ ! -d "${REPO_DIR}/rsl_rl" || ! -d "${REPO_DIR}/legged_gym" || ! -d "${REPO_DIR}/pose" ]]; then
-  echo "ERROR: This script must live in the TWIST repo root (contains rsl_rl/, legged_gym/, pose/)."
+  echo "ERROR: This script must live in the TWIST_CMG repo root (contains rsl_rl/, legged_gym/, pose/)."
   exit 1
 fi
 
 if [[ ! -f "${ISAAC_TAR}" ]]; then
   echo "ERROR: Isaac Gym tar not found: ${ISAAC_TAR}"
-  echo "You can override with: ISAAC_TAR=/path/to/isaacgym.tar.gz bash setup_twist.sh"
+  echo "You can override with: ISAAC_TAR=/path/to/isaacgym.tar.gz sudo -E bash setup.sh"
+  echo "Or use absolute path: /home/eziothean/下载/IsaacGym_Preview_4_Package.tar.gz"
   exit 1
 fi
 
 echo "[1] Install system packages (apt)..."
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y --no-install-recommends \
+sudo apt-get update -y
+sudo apt-get install -y --no-install-recommends \
   git wget curl ca-certificates unzip \
   ffmpeg \
   redis-server redis-tools \
@@ -139,3 +143,6 @@ echo "  cd \"${REPO_DIR}\""
 echo "  conda activate \"${ENV_NAME}\""
 echo "  tmux new -s twist   # optional"
 echo "  bash train_teacher.sh 0927_twist_teacher cuda:0"
+echo ""
+echo "For future runs with local Isaac Gym tar:"
+echo "  ISAAC_TAR=/home/eziothean/下载/IsaacGym_Preview_4_Package.tar.gz bash setup.sh"

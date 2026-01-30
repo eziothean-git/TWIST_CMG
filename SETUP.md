@@ -13,6 +13,7 @@
 - GPU 驱动已可用：`nvidia-smi` 能正常显示 GPU（如 RTX 4090）
 - 已经准备好 Isaac Gym 安装包（tar.gz）：
   - 默认路径：`/root/Downloads/IsaacGym_Preview_4_Package.tar.gz`
+  - 本机路径：`/home/eziothean/下载/IsaacGym_Preview_4_Package.tar.gz`
 
 > 注意：脚本不会从网络下载 Isaac Gym，只会从本地 tar 解压并安装。
 
@@ -23,23 +24,33 @@
 建议不要递归 submodule（避免 HuggingFace 大数据集卡死）：
 
 ```bash
-cd /root
-git clone https://github.com/eziothean-git/TWIST-Docker.git
+cd /home/eziothean
+git clone https://github.com/eziothean-git/TWIST_CMG.git
 ```
 
 2. 运行一键脚本（严格重置）
 
-脚本位置：仓库根目录 setup_twist.sh
+脚本位置：仓库根目录 setup.sh
 
-cd /root/TWIST-Docker
-chmod +x setup_twist.sh
-bash setup_twist.sh
+```bash
+cd /home/eziothean/TWIST_CMG
+chmod +x setup.sh
+bash setup.sh
+```
 
 可选：自定义 Isaac Gym tar 路径
 
 如果你的 Isaac Gym tar 不在默认目录，用环境变量覆盖：
 
-ISAAC_TAR=/path/to/IsaacGym_Preview_4_Package.tar.gz bash setup_twist.sh
+```bash
+ISAAC_TAR=/path/to/IsaacGym_Preview_4_Package.tar.gz bash setup.sh
+```
+
+例如，如果 Isaac Gym 在 `/home/eziothean/下载/IsaacGym_Preview_4_Package.tar.gz`：
+
+```bash
+ISAAC_TAR=/home/eziothean/下载/IsaacGym_Preview_4_Package.tar.gz bash setup.sh
+```
 
 3. 脚本做了什么
 
@@ -72,9 +83,12 @@ pip 安装依赖（按 README 列表）
 自检：import isaacgym + torch.cuda.is_available() + redis-cli ping
 
 4. 开始训练
-cd /root/TWIST-Docker
+
+```bash
+cd /home/eziothean/TWIST_CMG
 conda activate twist
 bash train_teacher.sh 0927_twist_teacher cuda:0
+```
 
 5. 常见问题
 systemd 不可用怎么办？
@@ -93,11 +107,13 @@ rm -rf third_party/isaacgym
 
 
 ---
-1. 把脚本放进 repo：`/root/TWIST-Docker/setup_twist.sh`  
-2. 运行：
+
+## 快速开始（本机）
+
+如果你的 Isaac Gym tar 在 `/home/eziothean/下载/IsaacGym_Preview_4_Package.tar.gz`，直接运行：
+
 ```bash
-cd /root/TWIST-Docker
-chmod +x setup.sh
-bash setup.sh
+ISAAC_TAR=/home/eziothean/下载/IsaacGym_Preview_4_Package.tar.gz bash setup.sh
+```
 
 之后每个新实例：clone repo + 放好 IsaacGym tar + 运行脚本 就能开训。
