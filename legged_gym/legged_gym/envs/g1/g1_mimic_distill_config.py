@@ -210,13 +210,17 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         regularization_scale_curriculum = False
         regularization_scale_gamma = 0.0001
         class scales:
-            # ========== CMG支持的跟踪奖励 ==========
+            # ========== 跟踪奖励配置 ==========
+            # 关节跟踪 : 速度跟踪 = 6 : 4
+            # 关节跟踪合计 0.8，速度跟踪合计 0.53
+            
+            # -- 关节跟踪 (60%) --
             tracking_joint_dof = 0.6      # CMG提供dof_pos ✓
             tracking_joint_vel = 0.2      # CMG提供dof_vel ✓
             
-            # ========== 速度命令跟踪奖励 ==========
-            tracking_lin_vel = 0.5        # 线速度跟踪 (vx, vy)
-            tracking_ang_vel = 0.3        # 角速度跟踪 (yaw)
+            # -- 速度命令跟踪 (40%) --
+            tracking_lin_vel = 0.35       # 线速度跟踪 (vx, vy)
+            tracking_ang_vel = 0.18       # 角速度跟踪 (yaw)
             
             # ========== CMG不支持的奖励（已禁用）==========
             # tracking_root_pose = 0.6    # CMG不提供root位置参考

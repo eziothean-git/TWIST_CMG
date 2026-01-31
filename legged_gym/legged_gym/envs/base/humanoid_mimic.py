@@ -324,9 +324,10 @@ class HumanoidMimic(HumanoidChar):
             # Mocap模式：与参考高度比较
             height_cutoff = torch.abs(self.root_states[:, 2] - self._ref_root_pos[:, 2]) > self.cfg.rewards.root_height_diff_threshold
         else:
-            # CMG模式：使用绝对高度阈值（太低=摔倒，太高=不正常）
-            height_too_low = self.root_states[:, 2] < 0.3  # 放宽到0.3m
-            height_too_high = self.root_states[:, 2] > 2.0  # 放宽到2.0m
+            # CMG模式：使用绝对高度阈值
+            # G1站立高度约0.75m，正常行走范围0.5-1.0m
+            height_too_low = self.root_states[:, 2] < 0.5  # 低于0.5m说明跪下或摔倒
+            height_too_high = self.root_states[:, 2] > 1.2  # 高于1.2m不正常
             height_cutoff = height_too_low | height_too_high
 
         roll_cut = torch.abs(self.roll) > self.cfg.rewards.termination_roll
@@ -335,6 +336,22 @@ class HumanoidMimic(HumanoidChar):
         self.reset_buf |= pitch_cut
         motion_end = self.episode_length_buf * self.dt >= self._motion_lib.get_motion_length(self._motion_ids)
         self.reset_buf |= height_cutoff
+        
+        # CMG模式：基于关节跟踪误差的终止条件
+        dof_tracking_fail = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        if not self._has_body_pos_ref:
+            # 计算关节位置误差
+            dof_diff = self._ref_dof_pos - self.dof_pos
+            dof_err = torch.mean(torch.abs(dof_diff), dim=-1)  # L1误差
+            # 如果平均关节误差超过阈值（弧度），认为跟踪失败
+            dof_tracking_fail = dof_err > 0.8  # ~45度平均误差
+            
+            # 累计跟踪失败帧数
+            self.deviate_tracking_frames[dof_tracking_fail] += 1
+            self.deviate_tracking_frames[~dof_tracking_fail] = 0
+            # 连续50帧跟踪失败则终止
+            dof_tracking_terminate = self.deviate_tracking_frames >= 50
+            self.reset_buf |= dof_tracking_terminate
         
         # 调试输出：打印哪个条件触发了reset
         if self.viewer is not None and self.reset_buf.any():
@@ -350,6 +367,9 @@ class HumanoidMimic(HumanoidChar):
                     reasons.append(f"roll({self.roll[env_id].item():.2f})")
                 if pitch_cut[env_id]:
                     reasons.append(f"pitch({self.pitch[env_id].item():.2f})")
+                if not self._has_body_pos_ref and dof_tracking_fail[env_id]:
+                    dof_err_val = torch.mean(torch.abs(self._ref_dof_pos[env_id] - self.dof_pos[env_id])).item()
+                    reasons.append(f"dof_tracking(err={dof_err_val:.2f})")
                 if motion_end[env_id]:
                     reasons.append("motion_end")
                 if reasons:
