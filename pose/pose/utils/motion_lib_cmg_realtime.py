@@ -215,23 +215,67 @@ class MotionLibCMGRealtime:
         best_pose = None
         min_vel = float('inf')
         
+        # 【防御】确保samples存在且非空
+        if not hasattr(self, 'samples') or self.samples is None or len(self.samples) == 0:
+            cprint(f"[MotionLibCMGRealtime] ERROR: samples为空或不存在，使用默认零姿态", "red")
+            return torch.zeros(self.dof_dim * 2, dtype=torch.float32, device=self.device)
+        
         # 遍历所有样本找速度最小的帧
+        sample_count = 0
         for sample in self.samples[:min(100, len(self.samples))]:  # 最多检查100个样本
+            if sample is None or "motion" not in sample:
+                continue
+            
             motion_seq = sample["motion"]  # [T, motion_dim]
             # 确保使用CPU上的numpy数组，避免GPU索引错误
             if isinstance(motion_seq, torch.Tensor):
                 motion_seq = motion_seq.detach().cpu().numpy()
+            else:
+                motion_seq = np.asarray(motion_seq)
+            
+            # 【防御】检查motion_seq的维度
+            if motion_seq.ndim != 2:
+                cprint(f"[MotionLibCMGRealtime] WARNING: motion_seq维度错误 {motion_seq.ndim}，期望2", "yellow")
+                continue
+            
             # 检查前几帧（通常更接近静止）
             for t in range(min(10, len(motion_seq))):
                 pose = motion_seq[t]
+                
+                # 【关键防御】确保pose是1D数组且长度正确
+                if pose.ndim != 1:
+                    cprint(f"[MotionLibCMGRealtime] WARNING: pose维度错误 {pose.ndim}，跳过", "yellow")
+                    continue
+                
+                if len(pose) != self.dof_dim * 2:
+                    cprint(f"[MotionLibCMGRealtime] WARNING: pose长度错误 {len(pose)}, 期望{self.dof_dim*2}，跳过", "yellow")
+                    continue
+                
+                # 检查pose中是否有无效数值
+                if not np.isfinite(pose).all():
+                    cprint(f"[MotionLibCMGRealtime] WARNING: pose包含无效数值，跳过", "yellow")
+                    continue
+                
                 vel = np.abs(pose[self.dof_dim:]).sum()  # dof_vel 的绝对值之和
                 if vel < min_vel:
                     min_vel = vel
                     best_pose = pose.copy()  # 确保复制，避免引用问题
+                    sample_count += 1
         
+        # 【防御】如果没找到有效的pose
         if best_pose is None:
-            # Fallback：使用第一个样本的第一帧
-            best_pose = self.samples[0]["motion"][0].copy()
+            cprint(f"[MotionLibCMGRealtime] WARNING: 未找到有效的pose (检查了{sample_count}个), 使用Fallback", "yellow")
+            try:
+                if len(self.samples) > 0 and self.samples[0] is not None and "motion" in self.samples[0]:
+                    motion_seq = self.samples[0]["motion"]
+                    if isinstance(motion_seq, torch.Tensor):
+                        motion_seq = motion_seq.cpu().numpy()
+                    best_pose = np.asarray(motion_seq[0]).copy()
+                else:
+                    best_pose = np.zeros(self.dof_dim * 2, dtype=np.float32)
+            except Exception as e:
+                cprint(f"[MotionLibCMGRealtime] ERROR: Fallback失败 {e}，使用零姿态", "red")
+                best_pose = np.zeros(self.dof_dim * 2, dtype=np.float32)
         
         # 形状防御：期望长度=2*dof_dim
         expected_dim = self.dof_dim * 2
@@ -241,10 +285,10 @@ class MotionLibCMGRealtime:
             if best_pose.shape[0] > expected_dim:
                 best_pose = best_pose[:expected_dim]
             else:
-                pad = np.zeros(expected_dim - best_pose.shape[0], dtype=best_pose.dtype)
+                pad = np.zeros(expected_dim - best_pose.shape[0], dtype=np.float32)
                 best_pose = np.concatenate([best_pose, pad], axis=0)
 
-        # 数值防御：检查是否存在nan/inf，若有则替换为0并报错提示
+        # 数值防御：检查是否存在nan/inf，若有则替换为0
         if not np.isfinite(best_pose).all():
             bad_mask = ~np.isfinite(best_pose)
             cprint(
@@ -253,10 +297,16 @@ class MotionLibCMGRealtime:
             )
             best_pose = np.nan_to_num(best_pose, nan=0.0, posinf=0.0, neginf=0.0)
 
-        cprint(f"[MotionLibCMGRealtime] 选择站立姿态，速度和={min_vel:.4f}", "cyan")
-        # 确保numpy数组是C连续的，然后转换到GPU
-        best_pose = np.ascontiguousarray(best_pose)
-        return torch.from_numpy(best_pose).float().to(self.device)
+        cprint(f"[MotionLibCMGRealtime] 选择站立姿态成功，速度和={min_vel:.4f}，检查{sample_count}个有效pose", "cyan")
+        
+        # 确保numpy数组是正确类型、C连续，然后在CPU上转换再移到GPU
+        best_pose = np.ascontiguousarray(best_pose, dtype=np.float32)
+        
+        # 【关键修复】在CPU上先创建tensor，再移到GPU，避免numpy/GPU直接交互问题
+        tensor_result = torch.from_numpy(best_pose)  # 自动推断dtype
+        if tensor_result.dtype != torch.float32:
+            tensor_result = tensor_result.float()
+        return tensor_result.to(self.device)
     
     def _generate_frames(self, env_ids: torch.Tensor, num_frames: int) -> torch.Tensor:
         """
