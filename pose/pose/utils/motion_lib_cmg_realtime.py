@@ -224,13 +224,15 @@ class MotionLibCMGRealtime:
                 vel = np.abs(pose[self.dof_dim:]).sum()  # dof_vel 的绝对值之和
                 if vel < min_vel:
                     min_vel = vel
-                    best_pose = pose
+                    best_pose = pose.copy()  # 确保复制，避免引用问题
         
         if best_pose is None:
             # Fallback：使用第一个样本的第一帧
-            best_pose = self.samples[0]["motion"][0]
+            best_pose = self.samples[0]["motion"][0].copy()
         
         cprint(f"[MotionLibCMGRealtime] 选择站立姿态，速度和={min_vel:.4f}", "cyan")
+        # 确保numpy数组是C连续的，然后转换到GPU
+        best_pose = np.ascontiguousarray(best_pose)
         return torch.from_numpy(best_pose).float().to(self.device)
     
     def _generate_frames(self, env_ids: torch.Tensor, num_frames: int) -> torch.Tensor:
