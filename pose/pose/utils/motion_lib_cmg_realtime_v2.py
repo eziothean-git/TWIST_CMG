@@ -142,11 +142,14 @@ class MotionLibCMGRealtime:
         # 推理
         trajectory = self._batch_inference(init_states, commands, self.buffer_frames)
         
-        # 逐环境填充缓冲（用clone避免GPU索引）
-        for i, env_id in enumerate(env_indices):
-            self.motion_buffer[env_id, :, :] = trajectory[i, :, :].clone()
+        # 批量填充缓冲（用张量索引而非循环）
+        env_indices_tensor = torch.tensor(env_indices, dtype=torch.long, device=self.device)
+        self.motion_buffer[env_indices_tensor] = trajectory
+        self.current_state[env_indices_tensor] = trajectory[:, -1, :]
+        
+        # 更新Python标志
+        for env_id in env_indices:
             self.buffer_read_idx[env_id] = 0
-            self.current_state[env_id, :] = trajectory[i, -1, :].clone()
         
         cprint(f"[推理] {batch_size} 个环境生成参考", "cyan")
         self.inference_count += 1
@@ -194,11 +197,12 @@ class MotionLibCMGRealtime:
                 end = min(start + self.batch_size, len(envs_need_infer))
                 batch_env_ids = envs_need_infer[start:end]
                 
-                # 提取该批数据
-                batch_dof_pos = self.current_state[batch_env_ids, :self.dof_dim]
-                batch_commands = self.commands[batch_env_ids].clone()
+                # 用张量索引提取批量数据
+                batch_indices = torch.tensor(batch_env_ids, dtype=torch.long, device=self.device)
+                batch_dof_pos = self.current_state[batch_indices, :self.dof_dim].clone()
+                batch_commands = self.commands[batch_indices].clone()
                 
-                # 处理落地稳定期
+                # 处理落地稳定期（在副本上操作）
                 for i, env_id in enumerate(batch_env_ids):
                     if self.settle_counter[env_id] > 0:
                         batch_commands[i, :] = 0.0
@@ -215,36 +219,36 @@ class MotionLibCMGRealtime:
             if self.settle_counter[env_id] > 0:
                 self.settle_counter[env_id] -= 1
         
-        # 从缓冲读取动作（用clone避免GPU索引）
+        # 从缓冲读取动作（批量操作）
         dof_pos = torch.zeros(N, self.dof_dim, device=self.device, dtype=torch.float32)
         dof_vel = torch.zeros(N, self.dof_dim, device=self.device, dtype=torch.float32)
+        root_vel = torch.zeros(N, 3, device=self.device, dtype=torch.float32)
+        root_ang_vel = torch.zeros(N, 3, device=self.device, dtype=torch.float32)
         
+        # 构建读取索引
+        read_indices = torch.tensor([self.buffer_read_idx[e] for e in env_ids_list], 
+                                     dtype=torch.long, device=self.device)
+        env_indices_tensor = torch.tensor(env_ids_list, dtype=torch.long, device=self.device)
+        
+        # 批量读取motion_buffer (需要手动gather)
         for i, env_id in enumerate(env_ids_list):
             frame_idx = self.buffer_read_idx[env_id]
-            motion_data = self.motion_buffer[env_id, frame_idx, :].clone()
-            dof_pos[i, :] = motion_data[:self.dof_dim]
-            dof_vel[i, :] = motion_data[self.dof_dim:]
+            motion_data = self.motion_buffer[env_id, frame_idx, :]
+            dof_pos[i] = motion_data[:self.dof_dim]
+            dof_vel[i] = motion_data[self.dof_dim:]
             
             # 落地稳定期速度为0
             if self.settle_counter[env_id] > 0:
                 dof_vel[i, :] = 0.0
-            
-            # 推进缓冲指针
-            self.buffer_read_idx[env_id] += 1
-        
-        # 构建返回值
-        root_vel = torch.zeros(N, 3, device=self.device, dtype=torch.float32)
-        root_ang_vel = torch.zeros(N, 3, device=self.device, dtype=torch.float32)
-        
-        for i, env_id in enumerate(env_ids_list):
-            if self.settle_counter[env_id] > 0:
-                # 落地期间零速度
                 root_vel[i, :] = 0.0
                 root_ang_vel[i, :] = 0.0
             else:
                 root_vel[i, 0] = self.commands[env_id, 0]
                 root_vel[i, 1] = self.commands[env_id, 1]
                 root_ang_vel[i, 2] = self.commands[env_id, 2]
+            
+            # 推进缓冲指针
+            self.buffer_read_idx[env_id] += 1
         
         return None, None, root_vel, root_ang_vel, dof_pos, dof_vel, None
     
@@ -259,15 +263,17 @@ class MotionLibCMGRealtime:
         except:
             env_ids_list = list(range(N))
         
-        # 更新命令和状态（用clone避免GPU索引）
-        for i, env_id in enumerate(env_ids_list):
-            if commands is not None:
-                self.commands[env_id, :] = commands[i, :].clone()
-            
-            if init_dof_pos is not None:
-                self.current_state[env_id, :self.dof_dim] = init_dof_pos[i, :].clone()
-            
-            # 标记需要推理
+        # 使用张量索引一次性更新（避免循环中的逐元素索引）
+        env_ids_tensor = torch.tensor(env_ids_list, dtype=torch.long, device=self.device)
+        
+        if commands is not None:
+            self.commands[env_ids_tensor] = commands.clone()
+        
+        if init_dof_pos is not None:
+            self.current_state[env_ids_tensor, :self.dof_dim] = init_dof_pos.clone()
+        
+        # 更新Python状态标志
+        for env_id in env_ids_list:
             self.needs_inference[env_id] = True
             self.settle_counter[env_id] = self.settle_frames
             self.is_initialized[env_id] = True
@@ -281,10 +287,12 @@ class MotionLibCMGRealtime:
                 end = min(start + self.batch_size, len(envs_to_init))
                 batch_env_ids = envs_to_init[start:end]
                 
-                batch_dof_pos = self.current_state[batch_env_ids, :self.dof_dim]
-                batch_commands = self.commands[batch_env_ids]
+                # 用长整型索引提取批量数据
+                batch_indices = torch.tensor(batch_env_ids, dtype=torch.long, device=self.device)
+                batch_dof_pos = self.current_state[batch_indices, :self.dof_dim].clone()
+                batch_commands = self.commands[batch_indices].clone()
                 
-                # 落地稳定期清零命令
+                # 落地稳定期清零命令（在副本上操作）
                 for i, env_id in enumerate(batch_env_ids):
                     if self.settle_counter[env_id] > 0:
                         batch_commands[i, :] = 0.0
@@ -305,23 +313,26 @@ class MotionLibCMGRealtime:
         except:
             env_ids_list = list(range(N))
         
+        # 批量更新
+        env_indices_tensor = torch.tensor(env_ids_list, dtype=torch.long, device=self.device)
+        old_commands = self.commands[env_indices_tensor].clone()
+        self.commands[env_indices_tensor] = commands.clone()
+        
+        # 检查变化并标记需要推理
+        cmd_diff = torch.norm(commands - old_commands, dim=1)
         for i, env_id in enumerate(env_ids_list):
-            old_cmd = self.commands[env_id, :].clone()
-            self.commands[env_id, :] = commands[i, :].clone()
-            if torch.norm(commands[i, :] - old_cmd) > 0.01:
+            if cmd_diff[i] > 0.01:
                 self.needs_inference[env_id] = True
     
     def get_motion_command(self, motion_ids: torch.Tensor) -> torch.Tensor:
-        # motion_ids可能是长张量，需要逐个读取
+        # 用张量索引批量获取
         try:
             env_ids_list = motion_ids.cpu().tolist() if motion_ids.device.type == 'cuda' else motion_ids.tolist()
         except:
             env_ids_list = list(range(len(motion_ids)))
         
-        result = torch.zeros(len(env_ids_list), 3, device=self.device, dtype=torch.float32)
-        for i, env_id in enumerate(env_ids_list):
-            result[i, :] = self.commands[env_id, :].clone()
-        return result
+        env_indices_tensor = torch.tensor(env_ids_list, dtype=torch.long, device=self.device)
+        return self.commands[env_indices_tensor].clone()
     
     def get_motion_names(self) -> List[str]:
         return [f"cmg_realtime_{i}" for i in range(self.num_envs)]
