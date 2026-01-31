@@ -244,6 +244,16 @@ class HumanoidMimic(HumanoidChar):
             self.extras["episode"]['rew_' + key] = torch.mean(self.episode_sums[key][env_ids] * self.reward_scales[key] / self._motion_lib.get_motion_length(self._motion_ids[env_ids]))
             self.episode_sums[key][env_ids] = 0.
         
+        # 记录终止原因统计
+        if hasattr(self, '_termination_contact'):
+            n_reset = len(env_ids)
+            self.extras["episode"]['termination_contact'] = self._termination_contact[env_ids].float().mean()
+            self.extras["episode"]['termination_height'] = self._termination_height[env_ids].float().mean()
+            self.extras["episode"]['termination_roll'] = self._termination_roll[env_ids].float().mean()
+            self.extras["episode"]['termination_pitch'] = self._termination_pitch[env_ids].float().mean()
+            self.extras["episode"]['termination_dof_tracking'] = self._termination_dof_tracking[env_ids].float().mean()
+            self.extras["episode"]['termination_motion_end'] = self._termination_motion_end[env_ids].float().mean()
+        
         if self.cfg.motion.motion_curriculum:
             self._update_motion_difficulty(env_ids)
         self._reset_ref_motion(env_ids=env_ids, motion_ids=motion_ids)
@@ -394,8 +404,18 @@ class HumanoidMimic(HumanoidChar):
             # 连续50帧跟踪失败则终止
             dof_tracking_terminate = self.deviate_tracking_frames >= 50
             self.reset_buf |= dof_tracking_terminate
+        else:
+            dof_tracking_terminate = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         
-        # 调试输出：打印哪个条件触发了reset
+        # 统计终止原因（用于日志）
+        self._termination_contact = contact_force_termination
+        self._termination_height = height_cutoff
+        self._termination_roll = roll_cut
+        self._termination_pitch = pitch_cut
+        self._termination_dof_tracking = dof_tracking_terminate
+        self._termination_motion_end = motion_end
+        
+        # 调试输出：打印哪个条件触发了reset（仅在有viewer时）
         if self.viewer is not None and self.reset_buf.any():
             reset_envs = self.reset_buf.nonzero(as_tuple=True)[0]
             if len(reset_envs) > 0:

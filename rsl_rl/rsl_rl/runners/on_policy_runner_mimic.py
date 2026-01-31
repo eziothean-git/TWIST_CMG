@@ -271,6 +271,8 @@ class OnPolicyRunnerMimic:
                 # wandb_dict['Episode_rew/' + key] = value
                 if "metric" in key:
                     wandb_dict['Episode_rew_metrics/' + key] = value
+                elif "termination" in key:
+                    wandb_dict['Termination/' + key] = value
                 else:
                     if "tracking" in key:
                         wandb_dict['Episode_rew_tracking/' + key] = value
