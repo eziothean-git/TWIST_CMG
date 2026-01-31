@@ -214,6 +214,10 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
             tracking_joint_dof = 0.6      # CMG提供dof_pos ✓
             tracking_joint_vel = 0.2      # CMG提供dof_vel ✓
             
+            # ========== 速度命令跟踪奖励 ==========
+            tracking_lin_vel = 0.5        # 线速度跟踪 (vx, vy)
+            tracking_ang_vel = 0.3        # 角速度跟踪 (yaw)
+            
             # ========== CMG不支持的奖励（已禁用）==========
             # tracking_root_pose = 0.6    # CMG不提供root位置参考
             # tracking_root_vel = 1.0     # CMG不提供root速度参考
