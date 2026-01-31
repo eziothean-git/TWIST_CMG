@@ -480,16 +480,38 @@ class HumanoidMimic(HumanoidChar):
         self.reset_buf[first_step] = 0 # Do not reset on first step
         
         # 记录终结原因统计到 extras（用于 wandb 日志）
+        # 计数每个终结条件触发的环境数
+        num_contact_force = contact_force_termination.sum().item()
+        num_height = height_cutoff.sum().item()
+        num_roll = roll_cut.sum().item()
+        num_pitch = pitch_cut.sum().item()
+        num_vel_large = vel_too_large.sum().item()
+        num_pose = pose_fail.sum().item()
+        num_motion_end = motion_end.sum().item()
+        num_timeout = self.time_out_buf.sum().item()
         num_resets = self.reset_buf.sum().item()
+        
+        # 记录到 extras，包括绝对计数和占比
         if num_resets > 0:
-            self.extras["termination/contact_force"] = contact_force_termination.sum().item() / max(num_resets, 1)
-            self.extras["termination/height"] = height_cutoff.sum().item() / max(num_resets, 1)
-            self.extras["termination/roll"] = roll_cut.sum().item() / max(num_resets, 1)
-            self.extras["termination/pitch"] = pitch_cut.sum().item() / max(num_resets, 1)
-            self.extras["termination/vel_too_large"] = vel_too_large.sum().item() / max(num_resets, 1)
-            self.extras["termination/pose_fail"] = pose_fail.sum().item() / max(num_resets, 1)
-            self.extras["termination/motion_end"] = motion_end.sum().item() / max(num_resets, 1)
-            self.extras["termination/timeout"] = self.time_out_buf.sum().item() / max(num_resets, 1)
+            self.extras["termination/count"] = num_resets
+            self.extras["termination/contact_force"] = num_contact_force
+            self.extras["termination/height"] = num_height
+            self.extras["termination/roll"] = num_roll
+            self.extras["termination/pitch"] = num_pitch
+            self.extras["termination/vel_too_large"] = num_vel_large
+            self.extras["termination/pose_fail"] = num_pose
+            self.extras["termination/motion_end"] = num_motion_end
+            self.extras["termination/timeout"] = num_timeout
+            
+            # 同时记录占比（便于查看主要终结原因）
+            self.extras["termination/contact_force_ratio"] = num_contact_force / num_resets
+            self.extras["termination/height_ratio"] = num_height / num_resets
+            self.extras["termination/roll_ratio"] = num_roll / num_resets
+            self.extras["termination/pitch_ratio"] = num_pitch / num_resets
+            self.extras["termination/vel_too_large_ratio"] = num_vel_large / num_resets
+            self.extras["termination/pose_fail_ratio"] = num_pose / num_resets
+            self.extras["termination/motion_end_ratio"] = num_motion_end / num_resets
+            self.extras["termination/timeout_ratio"] = num_timeout / num_resets
         
 
     def _get_mimic_obs(self):
