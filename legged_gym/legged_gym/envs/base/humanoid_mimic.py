@@ -117,6 +117,12 @@ class HumanoidMimic(HumanoidChar):
         self._termination_pose = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self._termination_motion_end = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self._termination_timeout = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        
+        # 【调试】打印 DOF 顺序，确认与 CMG 一致
+        cprint(f"\n[DEBUG] IsaacGym DOF 顺序 (共{self.num_dof}个):", "yellow")
+        for i, name in enumerate(self.dof_names):
+            cprint(f"  [{i:2d}] {name}", "cyan")
+        
         self._key_body_ids_motion = self._motion_lib.get_key_body_idx(key_body_names=self.cfg.motion.key_bodies)
         # CMG模式返回空列表，使用仿真器的key_body_ids代替
         if len(self._key_body_ids_motion) == 0:
