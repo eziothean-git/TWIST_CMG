@@ -399,8 +399,12 @@ class HumanoidMimic(HumanoidChar):
             
     def check_termination(self):
         # 采用 Yanjie_branch_2 版本的终结条件设计
+        # 注意：contact_force_termination 在某些模型配置下会误报（torso_link 自碰撞）
+        # 如果 termination/contact_force 占比过高，考虑禁用或提高阈值
         contact_force_termination = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
-        self.reset_buf = contact_force_termination
+        # 临时禁用接触力终结以排查问题，确认后可恢复
+        # self.reset_buf = contact_force_termination
+        self.reset_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         
         # 高度检查：
         # - Mocap模式（有body_pos参考）：使用相对高度
@@ -451,11 +455,23 @@ class HumanoidMimic(HumanoidChar):
                 root_pos_fail = root_pos_fail.squeeze(-1)
                 pose_fail |= root_pos_fail
             self.reset_buf |= pose_fail
+        else:
+            pose_fail = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         
         first_step = self.episode_length_buf == 0
-
-        
         self.reset_buf[first_step] = 0 # Do not reset on first step
+        
+        # 记录终结原因统计到 extras（用于 wandb 日志）
+        num_resets = self.reset_buf.sum().item()
+        if num_resets > 0:
+            self.extras["termination/contact_force"] = contact_force_termination.sum().item() / max(num_resets, 1)
+            self.extras["termination/height"] = height_cutoff.sum().item() / max(num_resets, 1)
+            self.extras["termination/roll"] = roll_cut.sum().item() / max(num_resets, 1)
+            self.extras["termination/pitch"] = pitch_cut.sum().item() / max(num_resets, 1)
+            self.extras["termination/vel_too_large"] = vel_too_large.sum().item() / max(num_resets, 1)
+            self.extras["termination/pose_fail"] = pose_fail.sum().item() / max(num_resets, 1)
+            self.extras["termination/motion_end"] = motion_end.sum().item() / max(num_resets, 1)
+            self.extras["termination/timeout"] = self.time_out_buf.sum().item() / max(num_resets, 1)
         
 
     def _get_mimic_obs(self):
