@@ -391,7 +391,7 @@ class HumanoidMimic(HumanoidChar):
             # CMG模式：使用绝对高度阈值
             # G1站立高度约0.75m，行走时约0.7-0.8m
             # 收紧范围，强制机器人必须保持站立姿态
-            height_too_low = self.root_states[:, 2] < 0.62  # 低于0.62m说明蹲太低或摔倒
+            height_too_low = self.root_states[:, 2] < 0.5  # 低于0.5m说明蹲太低或摔倒
             height_too_high = self.root_states[:, 2] > 0.95  # 高于0.95m不正常（跳起来？）
             height_cutoff = height_too_low | height_too_high
 
