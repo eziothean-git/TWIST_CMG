@@ -223,57 +223,30 @@ class MotionLibCMG:
         """
         采样多样化的速度命令
         
-        包含多种运动模式：前进、后退、转向、侧移、混合
+        简化版本：专注于向前行走，加速收敛
+        - vx: [0.15, 2.5] m/s (只向前)
+        - vy: 0 (不侧移)
+        - yaw: [-0.26, 0.26] rad/s (最大约15 deg/s)
         """
         commands = torch.zeros(n, 3, device=self.device)
         
-        # 将命令分为不同类别
-        n_forward = n // 4           # 25% 前进
-        n_turn = n // 4              # 25% 转向
-        n_mixed = n // 4             # 25% 混合
-        n_other = n - n_forward - n_turn - n_mixed  # 25% 其他
+        # vx: 均匀采样 [0.15, 2.5] m/s
+        commands[:, 0] = torch.rand(n, device=self.device) * (2.5 - 0.15) + 0.15
         
-        idx = 0
+        # vy: 保持为0（不侧移）
+        commands[:, 1] = 0.0
         
-        # 1. 前进 (vx > 0, vy ≈ 0, yaw ≈ 0)
-        commands[idx:idx+n_forward, 0] = torch.rand(n_forward, device=self.device) * 2.5 + 0.5  # 0.5~3.0 m/s
-        commands[idx:idx+n_forward, 1] = (torch.rand(n_forward, device=self.device) - 0.5) * 0.2  # 小侧移
-        commands[idx:idx+n_forward, 2] = (torch.rand(n_forward, device=self.device) - 0.5) * 0.3  # 小转向
-        idx += n_forward
-        
-        # 2. 转向 (vx 适中, yaw 较大)
-        commands[idx:idx+n_turn, 0] = torch.rand(n_turn, device=self.device) * 1.5 + 0.3  # 0.3~1.8 m/s
-        commands[idx:idx+n_turn, 1] = (torch.rand(n_turn, device=self.device) - 0.5) * 0.4
-        commands[idx:idx+n_turn, 2] = (torch.rand(n_turn, device=self.device) - 0.5) * 1.6  # -0.8~0.8 rad/s
-        idx += n_turn
-        
-        # 3. 混合运动 (全范围)
-        commands[idx:idx+n_mixed, 0] = torch.rand(n_mixed, device=self.device) * 4.5 - 1.5  # -1.5~3.0 m/s
-        commands[idx:idx+n_mixed, 1] = (torch.rand(n_mixed, device=self.device) - 0.5) * 1.6  # -0.8~0.8 m/s
-        commands[idx:idx+n_mixed, 2] = (torch.rand(n_mixed, device=self.device) - 0.5) * 1.6  # -0.8~0.8 rad/s
-        idx += n_mixed
-        
-        # 4. 其他 (后退、侧移、原地等)
-        for i in range(n_other):
-            mode = np.random.choice(['backward', 'strafe', 'stand', 'slow_walk'])
-            if mode == 'backward':
-                commands[idx+i, 0] = -torch.rand(1, device=self.device) * 1.0 - 0.3  # -1.3~-0.3
-                commands[idx+i, 1] = (torch.rand(1, device=self.device) - 0.5) * 0.3
-                commands[idx+i, 2] = (torch.rand(1, device=self.device) - 0.5) * 0.4
-            elif mode == 'strafe':
-                commands[idx+i, 0] = torch.rand(1, device=self.device) * 0.5  # 0~0.5
-                commands[idx+i, 1] = (torch.rand(1, device=self.device) - 0.5) * 1.6  # -0.8~0.8
-                commands[idx+i, 2] = (torch.rand(1, device=self.device) - 0.5) * 0.4
-            elif mode == 'stand':
-                commands[idx+i] = (torch.rand(3, device=self.device) - 0.5) * 0.1  # 近似静止
-            else:  # slow_walk
-                commands[idx+i, 0] = torch.rand(1, device=self.device) * 0.5 + 0.1  # 0.1~0.6
-                commands[idx+i, 1] = (torch.rand(1, device=self.device) - 0.5) * 0.2
-                commands[idx+i, 2] = (torch.rand(1, device=self.device) - 0.5) * 0.2
+        # yaw: 小范围转向 [-0.26, 0.26] rad/s (约 ±15 deg/s)
+        commands[:, 2] = (torch.rand(n, device=self.device) - 0.5) * 0.52  # ±0.26 rad/s
         
         # 随机打乱顺序
         perm = torch.randperm(n, device=self.device)
         commands = commands[perm]
+        
+        cprint(f"[MotionLibCMG] 命令采样范围:", "cyan")
+        cprint(f"  - vx: [{commands[:, 0].min():.2f}, {commands[:, 0].max():.2f}] m/s", "cyan")
+        cprint(f"  - vy: {commands[:, 1].mean():.2f} m/s (固定)", "cyan")
+        cprint(f"  - yaw: [{commands[:, 2].min():.2f}, {commands[:, 2].max():.2f}] rad/s", "cyan")
         
         return commands
     
