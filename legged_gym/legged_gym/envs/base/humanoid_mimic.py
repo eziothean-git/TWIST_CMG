@@ -372,10 +372,9 @@ class HumanoidMimic(HumanoidChar):
         self.curriculum_level = min(1.0, max(0.0, (difficulty - 3.0) / 4.0))
             
     def check_termination(self):
-        # 接触力终止：躯干等部位碰到地面/障碍物
-        # 阈值100N，避免轻微接触误触发
+        # 接触力终止：躯干等部位碰到地面/障碍物（> 1N 即触发）
         contact_force_termination = torch.any(
-            torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 100., 
+            torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., 
             dim=1
         )
         self.reset_buf = contact_force_termination
