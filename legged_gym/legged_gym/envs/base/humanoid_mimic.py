@@ -398,15 +398,18 @@ class HumanoidMimic(HumanoidChar):
         if not self._has_body_pos_ref:
             # 计算关节位置误差
             dof_diff = self._ref_dof_pos - self.dof_pos
-            dof_err = torch.mean(torch.abs(dof_diff), dim=-1)  # L1误差
-            # 如果平均关节误差超过阈值（弧度），认为跟踪失败
-            dof_tracking_fail = dof_err > 0.8  # ~45度平均误差
+            dof_err = torch.mean(torch.abs(dof_diff), dim=-1)  # L1误差（弧度）
+            
+            # 阈值设计：
+            # - 0.35 rad ≈ 20° 平均误差，表示跟踪偏离较多
+            # - 连续20帧（0.4秒）失败则终止
+            dof_tracking_fail = dof_err > 0.35
             
             # 累计跟踪失败帧数
             self.deviate_tracking_frames[dof_tracking_fail] += 1
             self.deviate_tracking_frames[~dof_tracking_fail] = 0
-            # 连续50帧跟踪失败则终止
-            dof_tracking_terminate = self.deviate_tracking_frames >= 50
+            # 连续15帧跟踪失败则终止
+            dof_tracking_terminate = self.deviate_tracking_frames >= 15
             self.reset_buf |= dof_tracking_terminate
         else:
             dof_tracking_terminate = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
