@@ -359,9 +359,9 @@ class HumanoidMimic(HumanoidChar):
     
     def _update_curriculum_level(self):
         """基于训练步数更新curriculum_level，控制命令范围"""
-        # common_step_counter 是仿真步数，每个iteration有 num_steps_per_env 步
-        # 估算当前迭代数：steps / num_steps_per_env
-        num_steps_per_env = getattr(self.cfg.runner, 'num_steps_per_env', 24)
+        # common_step_counter 是仿真步数
+        # 使用固定值24（默认num_steps_per_env）来估算迭代数
+        num_steps_per_env = 24
         estimated_iters = self.common_step_counter / num_steps_per_env
         
         # curriculum_level 从0线性增长到1
