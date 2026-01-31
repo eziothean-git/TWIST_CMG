@@ -410,9 +410,9 @@ class HumanoidMimic(HumanoidChar):
             dof_err = torch.mean(torch.abs(dof_diff), dim=-1)  # L1误差（弧度）
             
             # 阈值设计：
-            # - 0.35 rad ≈ 20° 平均误差，表示跟踪偏离较多
+            # - 0.3 rad ≈ 17° 平均误差，表示跟踪偏离较多
             # - 连续20帧（0.4秒）失败则终止
-            dof_tracking_fail = dof_err > 0.35
+            dof_tracking_fail = dof_err > 0.3
             
             # 累计跟踪失败帧数
             self.deviate_tracking_frames[dof_tracking_fail] += 1
