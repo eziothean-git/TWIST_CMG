@@ -75,6 +75,11 @@ class MotionLibCMGRealtime:
         self.motion_buffer = torch.zeros(num_envs, self.buffer_frames, 58, device=device, dtype=torch.float32)
         self.commands = torch.zeros(num_envs, 3, device=device, dtype=torch.float32)
         
+        # 确保GPU状态正常
+        if device != 'cpu':
+            torch.cuda.synchronize(device)
+            cprint(f"  GPU同步完成", "green")
+        
         # 纯Python管理状态（避免任何张量索引问题）
         self.buffer_read_idx = [0] * num_envs  # 缓冲读取位置
         self.needs_inference = [True] * num_envs  # 是否需要推理
@@ -142,8 +147,9 @@ class MotionLibCMGRealtime:
         # 推理
         trajectory = self._batch_inference(init_states, commands, self.buffer_frames)
         
-        # 批量填充缓冲（用张量索引而非循环）
-        env_indices_tensor = torch.tensor(env_indices, dtype=torch.long, device=self.device)
+        # 批量填充缓冲（先在CPU创建索引）
+        env_indices_cpu = torch.tensor(env_indices, dtype=torch.long, device='cpu')
+        env_indices_tensor = env_indices_cpu.to(self.device)
         self.motion_buffer[env_indices_tensor] = trajectory
         self.current_state[env_indices_tensor] = trajectory[:, -1, :]
         
@@ -197,8 +203,9 @@ class MotionLibCMGRealtime:
                 end = min(start + self.batch_size, len(envs_need_infer))
                 batch_env_ids = envs_need_infer[start:end]
                 
-                # 用张量索引提取批量数据
-                batch_indices = torch.tensor(batch_env_ids, dtype=torch.long, device=self.device)
+                # 用张量索引提取批量数据（先在CPU创建索引）
+                batch_indices_cpu = torch.tensor(batch_env_ids, dtype=torch.long, device='cpu')
+                batch_indices = batch_indices_cpu.to(self.device)
                 batch_dof_pos = self.current_state[batch_indices, :self.dof_dim].clone()
                 batch_commands = self.commands[batch_indices].clone()
                 
@@ -263,13 +270,25 @@ class MotionLibCMGRealtime:
         except:
             env_ids_list = list(range(N))
         
+        # 验证索引范围
+        max_env_id = max(env_ids_list) if env_ids_list else 0
+        if max_env_id >= self.num_envs:
+            cprint(f"[ERROR] 环境索引越界: max_id={max_env_id}, num_envs={self.num_envs}", "red")
+            raise ValueError(f"环境索引 {max_env_id} 超出范围 [0, {self.num_envs})")
+        
+        cprint(f"[Reset] 重置 {N} 个环境，索引范围: [{min(env_ids_list)}, {max(env_ids_list)}]", "yellow")
+        
         # 使用张量索引一次性更新（避免循环中的逐元素索引）
-        env_ids_tensor = torch.tensor(env_ids_list, dtype=torch.long, device=self.device)
+        # 注意：先在CPU创建索引张量，避免GPU assert传播
+        env_ids_cpu = torch.tensor(env_ids_list, dtype=torch.long, device='cpu')
+        env_ids_tensor = env_ids_cpu.to(self.device)
         
         if commands is not None:
+            cprint(f"  commands shape: {commands.shape}, device: {commands.device}", "cyan")
             self.commands[env_ids_tensor] = commands.clone()
         
         if init_dof_pos is not None:
+            cprint(f"  init_dof_pos shape: {init_dof_pos.shape}, device: {init_dof_pos.device}", "cyan")
             self.current_state[env_ids_tensor, :self.dof_dim] = init_dof_pos.clone()
         
         # 更新Python状态标志
@@ -281,6 +300,7 @@ class MotionLibCMGRealtime:
         # 立即为所有环境生成初始缓冲（重要！）
         envs_to_init = [e for e in env_ids_list if self.needs_inference[e]]
         if envs_to_init:
+            cprint(f"  需要初始化缓冲的环境数: {len(envs_to_init)}", "cyan")
             num_batches = (len(envs_to_init) + self.batch_size - 1) // self.batch_size
             for batch_idx in range(num_batches):
                 start = batch_idx * self.batch_size
@@ -288,7 +308,8 @@ class MotionLibCMGRealtime:
                 batch_env_ids = envs_to_init[start:end]
                 
                 # 用长整型索引提取批量数据
-                batch_indices = torch.tensor(batch_env_ids, dtype=torch.long, device=self.device)
+                batch_indices_cpu = torch.tensor(batch_env_ids, dtype=torch.long, device='cpu')
+                batch_indices = batch_indices_cpu.to(self.device)
                 batch_dof_pos = self.current_state[batch_indices, :self.dof_dim].clone()
                 batch_commands = self.commands[batch_indices].clone()
                 
@@ -303,7 +324,7 @@ class MotionLibCMGRealtime:
             for env_id in envs_to_init:
                 self.needs_inference[env_id] = False
         
-        cprint(f"[Reset] {N} 个环境已初始化缓冲，落地稳定 {self.SETTLE_TIME}s", "yellow")
+        cprint(f"[Reset] {N} 个环境已初始化缓冲，落地稳定 {self.SETTLE_TIME}s", "green")
     
     def update_commands(self, env_ids: torch.Tensor, commands: torch.Tensor):
         """更新命令"""
@@ -313,8 +334,9 @@ class MotionLibCMGRealtime:
         except:
             env_ids_list = list(range(N))
         
-        # 批量更新
-        env_indices_tensor = torch.tensor(env_ids_list, dtype=torch.long, device=self.device)
+        # 批量更新（先在CPU创建索引）
+        env_indices_cpu = torch.tensor(env_ids_list, dtype=torch.long, device='cpu')
+        env_indices_tensor = env_indices_cpu.to(self.device)
         old_commands = self.commands[env_indices_tensor].clone()
         self.commands[env_indices_tensor] = commands.clone()
         
@@ -331,7 +353,8 @@ class MotionLibCMGRealtime:
         except:
             env_ids_list = list(range(len(motion_ids)))
         
-        env_indices_tensor = torch.tensor(env_ids_list, dtype=torch.long, device=self.device)
+        env_indices_cpu = torch.tensor(env_ids_list, dtype=torch.long, device='cpu')
+        env_indices_tensor = env_indices_cpu.to(self.device)
         return self.commands[env_indices_tensor].clone()
     
     def get_motion_names(self) -> List[str]:
