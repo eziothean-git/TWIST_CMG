@@ -72,7 +72,7 @@ git reset --hard HEAD
 # 步骤4: 强制拉取最新代码
 echo ""
 echo "[3/4] 拉取最新代码..."
-git pull origin $current_branch --force
+git pull origin $current_branch --force --no-rebase
 
 # 步骤5: 验证关键文件
 echo ""
