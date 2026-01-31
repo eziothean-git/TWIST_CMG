@@ -376,26 +376,11 @@ class HumanoidMimic(HumanoidChar):
         if "episode" in self.extras:
             del self.extras["episode"]
         
-        # 接触力终止：躯干等部位碰到地面/障碍物
-        # TODO: 暂时禁用，因为 torso 接触力总是 > 1N，需要调查原因
-        # 可能是因为：1) 索引错误 2) 物理引擎噪音 3) 碰撞体积设置问题
-        torso_contact_forces = self.contact_forces[:, self.termination_contact_indices, :]
-        torso_contact_norms = torch.norm(torso_contact_forces, dim=-1)  # (num_envs, num_contact_bodies)
-        
-        # 调试：第一次运行时打印索引信息
-        if not hasattr(self, '_debug_contact_printed'):
-            self._debug_contact_printed = True
-            print(f"[DEBUG] termination_contact_indices: {self.termination_contact_indices}")
-            print(f"[DEBUG] contact_forces shape: {self.contact_forces.shape}")
-            print(f"[DEBUG] torso_contact_norms shape: {torso_contact_norms.shape}")
-            print(f"[DEBUG] torso_contact_norms (first 5 envs): {torso_contact_norms[:5]}")
-            print(f"[DEBUG] torso_contact_forces (env0): {torso_contact_forces[0]}")
-            # 打印所有 body 的 contact force norm 来检查
-            all_contact_norms = torch.norm(self.contact_forces[0], dim=-1)
-            print(f"[DEBUG] all contact norms (env0, all bodies): {all_contact_norms}")
-        
-        # 暂时禁用 contact force termination，改用更高的阈值（100N = 明显撞击）
-        contact_force_termination = torch.any(torso_contact_norms > 100., dim=1)
+        # 接触力终止：禁用
+        # 原因：torso_link 的 contact_forces 总是 > 1N，可能是自碰撞（手臂与躯干）
+        # 或者 IsaacGym 的 net_contact_force 包含了内部约束力
+        # 其他终止条件（height, roll, pitch）已足够检测摔倒
+        contact_force_termination = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.reset_buf = contact_force_termination
         
         # 高度检查：CMG模式使用绝对高度，mocap模式使用相对高度
