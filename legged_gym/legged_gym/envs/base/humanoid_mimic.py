@@ -162,6 +162,32 @@ class HumanoidMimic(HumanoidChar):
         # body_pos: CMG模式下为None，mocap模式下有值
         if body_pos is not None:
             self._ref_body_pos[env_ids] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
+        
+        # 【关键修复】CMG模式：同步self.commands与motion的velocity command
+        # 这确保了_reward_tracking_lin_vel/ang_vel与参考轨迹一致
+        from pose.utils.motion_lib_cmg import MotionLibCMG
+        if isinstance(self._motion_lib, MotionLibCMG):
+            # 获取该motion对应的velocity command
+            motion_commands = self._motion_lib.get_motion_command(motion_ids)  # [n, 3] = (vx, vy, yaw)
+            self.commands[env_ids, 0] = motion_commands[:, 0]  # vx
+            self.commands[env_ids, 1] = motion_commands[:, 1]  # vy
+            self.commands[env_ids, 2] = motion_commands[:, 2]  # yaw
+    
+    def _resample_commands(self, env_ids):
+        """
+        覆写父类方法，CMG模式下从motion_lib获取命令而不是随机采样
+        """
+        if len(env_ids) == 0:
+            return
+            
+        from pose.utils.motion_lib_cmg import MotionLibCMG
+        if isinstance(self._motion_lib, MotionLibCMG):
+            # CMG模式：命令已在_reset_ref_motion中设置，这里不重新采样
+            # 因为CMG轨迹与特定命令绑定，不能随意更换
+            pass
+        else:
+            # Mocap模式：使用父类的随机采样（如果需要）
+            super()._resample_commands(env_ids)
     
     def _get_motion_times(self, env_ids=None):
         if env_ids is None:
