@@ -398,28 +398,18 @@ class HumanoidMimic(HumanoidChar):
         self.curriculum_level = min(1.0, max(0.0, (difficulty - 3.0) / 4.0))
             
     def check_termination(self):
-        # 清空 episode 信息，避免残留数据被重复统计
-        if "episode" in self.extras:
-            del self.extras["episode"]
-        
-        # 接触力终止：禁用
-        # 原因：torso_link 的 contact_forces 总是 > 1N，可能是自碰撞（手臂与躯干）
-        # 或者 IsaacGym 的 net_contact_force 包含了内部约束力
-        # 其他终止条件（height, roll, pitch）已足够检测摔倒
-        contact_force_termination = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        # 采用 Yanjie_branch_2 版本的终结条件设计
+        contact_force_termination = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
         self.reset_buf = contact_force_termination
         
-        # 高度检查：CMG模式使用绝对高度，mocap模式使用相对高度
+        # 高度检查：
+        # - Mocap模式（有body_pos参考）：使用相对高度
+        # - CMG模式（无body_pos参考）：使用绝对高度（与Yanjie g1_mimic_distill.py一致）
         if self._has_body_pos_ref:
-            # Mocap模式：与参考高度比较
             height_cutoff = torch.abs(self.root_states[:, 2] - self._ref_root_pos[:, 2]) > self.cfg.rewards.root_height_diff_threshold
         else:
-            # CMG模式：使用绝对高度阈值
-            # G1站立高度约0.75m，行走时约0.7-0.8m
-            # 收紧范围，强制机器人必须保持站立姿态
-            height_too_low = self.root_states[:, 2] < 0.5  # 低于0.5m说明蹲太低或摔倒
-            height_too_high = self.root_states[:, 2] > 0.95  # 高于0.95m不正常（跳起来？）
-            height_cutoff = height_too_low | height_too_high
+            # CMG模式：只检查太低（< 0.4m），与Yanjie版本一致
+            height_cutoff = self.root_states[:, 2] < 0.4
 
         roll_cut = torch.abs(self.roll) > self.cfg.rewards.termination_roll
         pitch_cut = torch.abs(self.pitch) > self.cfg.rewards.termination_pitch
@@ -427,58 +417,6 @@ class HumanoidMimic(HumanoidChar):
         self.reset_buf |= pitch_cut
         motion_end = self.episode_length_buf * self.dt >= self._motion_lib.get_motion_length(self._motion_ids)
         self.reset_buf |= height_cutoff
-        
-        # CMG模式：基于关节跟踪误差的终止条件
-        dof_tracking_fail = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
-        if not self._has_body_pos_ref:
-            # 计算关节位置误差
-            dof_diff = self._ref_dof_pos - self.dof_pos
-            dof_err = torch.mean(torch.abs(dof_diff), dim=-1)  # L1误差（弧度）
-            
-            # 阈值设计：
-            # - 0.25 rad ≈ 14° 平均误差，表示跟踪偏离较多
-            # - 连续100帧（0.1秒）失败则终止
-            dof_tracking_fail = dof_err > 0.25
-            
-            # 累计跟踪失败帧数
-            self.deviate_tracking_frames[dof_tracking_fail] += 1
-            self.deviate_tracking_frames[~dof_tracking_fail] = 0
-            # 连续100帧跟踪失败则终止
-            dof_tracking_terminate = self.deviate_tracking_frames >= 100
-            self.reset_buf |= dof_tracking_terminate
-        else:
-            dof_tracking_terminate = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
-        
-        # 统计终止原因（用于日志）- 非互斥，记录所有触发的条件
-        # 这样可以看到每个条件的真实触发率
-        self._termination_contact = contact_force_termination
-        self._termination_height = height_cutoff
-        self._termination_roll = roll_cut
-        self._termination_pitch = pitch_cut
-        self._termination_dof_tracking = dof_tracking_terminate
-        self._termination_motion_end = motion_end
-        
-        # 调试输出：打印哪个条件触发了reset（仅在有viewer时）
-        if self.viewer is not None and self.reset_buf.any():
-            reset_envs = self.reset_buf.nonzero(as_tuple=True)[0]
-            if len(reset_envs) > 0:
-                env_id = reset_envs[0].item()
-                reasons = []
-                if contact_force_termination[env_id]:
-                    reasons.append("contact_force")
-                if height_cutoff[env_id]:
-                    reasons.append(f"height(z={self.root_states[env_id, 2].item():.2f})")
-                if roll_cut[env_id]:
-                    reasons.append(f"roll({self.roll[env_id].item():.2f})")
-                if pitch_cut[env_id]:
-                    reasons.append(f"pitch({self.pitch[env_id].item():.2f})")
-                if not self._has_body_pos_ref and dof_tracking_fail[env_id]:
-                    dof_err_val = torch.mean(torch.abs(self._ref_dof_pos[env_id] - self.dof_pos[env_id])).item()
-                    reasons.append(f"dof_tracking(err={dof_err_val:.2f})")
-                if motion_end[env_id]:
-                    reasons.append("motion_end")
-                if reasons:
-                    print(f"[Termination] env {env_id}: {', '.join(reasons)}")
         
         if self.viewer is None:
             self.reset_buf |= motion_end
@@ -492,8 +430,7 @@ class HumanoidMimic(HumanoidChar):
         vel_too_large = torch.norm(self.root_states[:, 7:10], dim=-1) > 5.
         self.reset_buf |= vel_too_large
         
-        # CMG模式下没有body_pos参考，跳过基于body_pos的pose_termination
-        if self._pose_termination and self._has_body_pos_ref:
+        if self._pose_termination:
             body_pos = self.rigid_body_states[:, self._key_body_ids, 0:3] - self.rigid_body_states[:, 0:1, 0:3]
             tar_body_pos = self._ref_body_pos[:, self._key_body_ids] - self._ref_root_pos[:, None, :] 
             
@@ -504,15 +441,8 @@ class HumanoidMimic(HumanoidChar):
             body_pos_diff = tar_body_pos - body_pos # (envs, bodies, 3)
             body_pos_dist = torch.sum(body_pos_diff * body_pos_diff, dim=-1) # (envs, bodies)
             body_pos_dist = torch.max(body_pos_dist, dim=-1)[0] # (envs)
-            # if lose tracking for 50 frames continuously, reset (corresponds to 1 second)
-            # lose_tracking = body_pos_dist > self.motion_termination_dist[self._motion_ids] ** 2
-            # self.deviate_tracking_frames[lose_tracking] += 1
-            # self.deviate_tracking_frames[~lose_tracking] = 0
-            # pose_fail = self.deviate_tracking_frames >= self.cfg.motion.reset_consec_frames # 50 frames = 1 second
             
             pose_fail = body_pos_dist > self._pose_termination_dist ** 2
-            
-            # pose_fail = body_pos_dist > self.motion_termination_dist[self._motion_ids] ** 2
             
             if self._track_root:
                 root_pos_diff = self._ref_root_pos - self.root_states[:, 0:3]
