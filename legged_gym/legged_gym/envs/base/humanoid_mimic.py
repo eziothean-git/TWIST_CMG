@@ -247,12 +247,27 @@ class HumanoidMimic(HumanoidChar):
         # 记录终止原因统计
         if hasattr(self, '_termination_contact'):
             n_reset = len(env_ids)
-            self.extras["episode"]['termination_contact'] = self._termination_contact[env_ids].float().mean()
-            self.extras["episode"]['termination_height'] = self._termination_height[env_ids].float().mean()
-            self.extras["episode"]['termination_roll'] = self._termination_roll[env_ids].float().mean()
-            self.extras["episode"]['termination_pitch'] = self._termination_pitch[env_ids].float().mean()
-            self.extras["episode"]['termination_dof_tracking'] = self._termination_dof_tracking[env_ids].float().mean()
-            self.extras["episode"]['termination_motion_end'] = self._termination_motion_end[env_ids].float().mean()
+            term_contact = self._termination_contact[env_ids].float().mean()
+            term_height = self._termination_height[env_ids].float().mean()
+            term_roll = self._termination_roll[env_ids].float().mean()
+            term_pitch = self._termination_pitch[env_ids].float().mean()
+            term_dof = self._termination_dof_tracking[env_ids].float().mean()
+            term_motion_end = self._termination_motion_end[env_ids].float().mean()
+            
+            self.extras["episode"]['termination_contact'] = term_contact
+            self.extras["episode"]['termination_height'] = term_height
+            self.extras["episode"]['termination_roll'] = term_roll
+            self.extras["episode"]['termination_pitch'] = term_pitch
+            self.extras["episode"]['termination_dof_tracking'] = term_dof
+            self.extras["episode"]['termination_motion_end'] = term_motion_end
+            
+            # 调试输出（每100次 reset 打印一次）
+            if not hasattr(self, '_reset_count'):
+                self._reset_count = 0
+            self._reset_count += 1
+            if self._reset_count % 100 == 1:
+                print(f"[Termination Stats] n_reset={n_reset}, contact={term_contact:.3f}, height={term_height:.3f}, "
+                      f"roll={term_roll:.3f}, pitch={term_pitch:.3f}, dof={term_dof:.3f}, motion_end={term_motion_end:.3f}")
         
         if self.cfg.motion.motion_curriculum:
             self._update_motion_difficulty(env_ids)
@@ -372,6 +387,10 @@ class HumanoidMimic(HumanoidChar):
         self.curriculum_level = min(1.0, max(0.0, (difficulty - 3.0) / 4.0))
             
     def check_termination(self):
+        # 清空 episode 信息，避免残留数据被重复统计
+        if "episode" in self.extras:
+            del self.extras["episode"]
+        
         # 接触力终止：躯干等部位碰到地面/障碍物（> 1N 即触发）
         # 注意：只在接触力异常大时才终止（正常站立时躯干不应该有接触）
         torso_contact_forces = self.contact_forces[:, self.termination_contact_indices, :]
@@ -442,24 +461,14 @@ class HumanoidMimic(HumanoidChar):
         else:
             dof_tracking_terminate = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         
-        # 统计终止原因（用于日志）- 互斥统计，只记录首先触发的原因
-        # 优先级：contact > height > roll > pitch > dof_tracking > motion_end
-        self._termination_contact = contact_force_termination.clone()
-        remaining = ~contact_force_termination
-        
-        self._termination_height = height_cutoff & remaining
-        remaining = remaining & ~height_cutoff
-        
-        self._termination_roll = roll_cut & remaining
-        remaining = remaining & ~roll_cut
-        
-        self._termination_pitch = pitch_cut & remaining
-        remaining = remaining & ~pitch_cut
-        
-        self._termination_dof_tracking = dof_tracking_terminate & remaining
-        remaining = remaining & ~dof_tracking_terminate
-        
-        self._termination_motion_end = motion_end & remaining
+        # 统计终止原因（用于日志）- 非互斥，记录所有触发的条件
+        # 这样可以看到每个条件的真实触发率
+        self._termination_contact = contact_force_termination
+        self._termination_height = height_cutoff
+        self._termination_roll = roll_cut
+        self._termination_pitch = pitch_cut
+        self._termination_dof_tracking = dof_tracking_terminate
+        self._termination_motion_end = motion_end
         
         # 调试输出：打印哪个条件触发了reset（仅在有viewer时）
         if self.viewer is not None and self.reset_buf.any():
