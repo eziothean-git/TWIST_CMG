@@ -140,18 +140,35 @@ class MotionLibCMGRealtime:
         """为一批环境推理并填充缓冲"""
         batch_size = len(env_indices)
         
+        cprint(f"[DEBUG 推理] batch_size={batch_size}, env_indices={env_indices[:5]}...", "magenta")
+        cprint(f"  current_dof_pos shape: {current_dof_pos.shape}", "magenta")
+        cprint(f"  commands shape: {commands.shape}", "magenta")
+        
         # 构建初始状态
         init_states = torch.zeros(batch_size, 58, device=self.device, dtype=torch.float32)
         init_states[:, :self.dof_dim] = current_dof_pos
         
         # 推理
         trajectory = self._batch_inference(init_states, commands, self.buffer_frames)
+        cprint(f"  trajectory shape: {trajectory.shape}", "magenta")
+        cprint(f"  motion_buffer shape: {self.motion_buffer.shape}", "magenta")
         
         # 批量填充缓冲（先在CPU创建索引）
         env_indices_cpu = torch.tensor(env_indices, dtype=torch.long, device='cpu')
         env_indices_tensor = env_indices_cpu.to(self.device)
-        self.motion_buffer[env_indices_tensor] = trajectory
-        self.current_state[env_indices_tensor] = trajectory[:, -1, :]
+        
+        cprint(f"  env_indices_tensor: {env_indices_tensor}", "magenta")
+        cprint(f"  准备写入 motion_buffer[{env_indices_tensor.tolist()}] = trajectory[{trajectory.shape}]", "magenta")
+        
+        try:
+            self.motion_buffer[env_indices_tensor] = trajectory
+            self.current_state[env_indices_tensor] = trajectory[:, -1, :]
+            cprint(f"  缓冲填充成功", "green")
+        except Exception as e:
+            cprint(f"  [ERROR] 缓冲填充失败: {e}", "red")
+            cprint(f"    motion_buffer requires shape: [{len(env_indices_tensor)}, {self.buffer_frames}, 58]", "red")
+            cprint(f"    but trajectory shape is: {trajectory.shape}", "red")
+            raise
         
         # 更新Python标志
         for env_id in env_indices:
