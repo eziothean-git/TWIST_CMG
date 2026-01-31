@@ -1,6 +1,9 @@
 from isaacgym.torch_utils import *
 
 import torch
+import numpy as np
+import sys
+import os
 
 from legged_gym.envs.base.humanoid_mimic import HumanoidMimic
 from .g1_mimic_distill_config import G1MimicPrivCfg, G1MimicStuCfg
@@ -8,6 +11,10 @@ from legged_gym.gym_utils.math import *
 from pose.utils import torch_utils
 from legged_gym.envs.base.legged_robot import euler_from_quaternion
 from legged_gym.envs.base.humanoid_char import convert_to_local_root_body_pos, convert_to_global_root_body_pos
+
+# Import CMG module
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../../../cmg_workspace'))
+from module.cmg import CMG
 
 def g1_body_from_38_to_52(body_pos_38: torch.Tensor) -> torch.Tensor:
     """
@@ -25,9 +32,7 @@ def g1_body_from_38_to_52(body_pos_38: torch.Tensor) -> torch.Tensor:
             大小为 (N, 52, 3) 的关节坐标
     """
 
-    # 构建一个大小为 52 的整型索引张量，用于说明：
-    # “52-link 的每个关节，对应到 38-link 中的哪一个下标？”
-    # 若对应不到（例如手指关节），则为 -1。
+    # 构建一个大小为 52 的整型索引张量
     idx_map_52_list = [-1] * 52
     # 直接在列表中指定 38->52 的映射：
     # 0~29 不变, 30->37, 31->38, 32->39, 33->40, 34->41, 35->42, 36->43, 37->44
@@ -97,6 +102,7 @@ class G1MimicDistill(HumanoidMimic):
     def __init__(self, cfg: G1MimicPrivCfg, sim_params, physics_engine, sim_device, headless):
         self.cfg = cfg
         self.obs_type = cfg.env.obs_type
+        self.use_cmg = getattr(cfg.motion, 'use_cmg', False)
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
         self.last_feet_z = 0.05
         self.episode_length = torch.zeros((self.num_envs), device=self.device)
@@ -109,6 +115,13 @@ class G1MimicDistill(HumanoidMimic):
 
     def _reset_ref_motion(self, env_ids, motion_ids=None):
         n = len(env_ids)
+        
+        if self.use_cmg:
+            # Use CMG to generate reference trajectory
+            self._reset_ref_motion_cmg(env_ids)
+            return
+        
+        # Original motion library based reset
         if motion_ids is None:
             motion_ids = self._motion_lib.sample_motions(n, motion_difficulty=self.motion_difficulty)
         
@@ -121,92 +134,195 @@ class G1MimicDistill(HumanoidMimic):
         self._motion_time_offsets[env_ids] = motion_times
         
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
+        root_pos[:, 2] += self.cfg.motion.height_offset
         
-        # 处理root位置/旋转
-        if root_pos is not None:
-            # Mocap模式：有完整的root轨迹
-            root_pos[:, 2] += self.cfg.motion.height_offset
-            self._ref_root_pos[env_ids] = root_pos
-            self._ref_root_rot[env_ids] = root_rot
-        else:
-            # CMG模式：使用默认站立姿态
-            self._ref_root_pos[env_ids] = self.base_init_state[:3].unsqueeze(0).expand(n, -1).clone()
-            self._ref_root_pos[env_ids, 2] += self.cfg.motion.height_offset
-            self._ref_root_rot[env_ids] = self.base_init_state[3:7].unsqueeze(0).expand(n, -1).clone()
-        
-        # root_vel/root_ang_vel: CMG模式下来自velocity command
-        if root_vel is not None:
-            self._ref_root_vel[env_ids] = root_vel
-            self._ref_root_ang_vel[env_ids] = root_ang_vel
-        else:
-            self._ref_root_vel[env_ids] = 0.0
-            self._ref_root_ang_vel[env_ids] = 0.0
-        
+        self._ref_root_pos[env_ids] = root_pos
+        self._ref_root_rot[env_ids] = root_rot
+        self._ref_root_vel[env_ids] = root_vel
+        self._ref_root_ang_vel[env_ids] = root_ang_vel
         self._ref_dof_pos[env_ids] = dof_pos
         self._ref_dof_vel[env_ids] = dof_vel
-        
-        # body_pos: CMG模式下为None
-        if body_pos is not None:
-            if body_pos.shape[1] != self._ref_body_pos[env_ids].shape[1]:
-                body_pos = g1_body_from_38_to_52(body_pos)
-            self._ref_body_pos[env_ids] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
-        
-        # 【关键修复】CMG模式：同步self.commands与motion的velocity command
-        # 这确保了_reward_tracking_lin_vel/ang_vel与参考轨迹一致
-        from pose.utils.motion_lib_cmg import MotionLibCMG
-        if isinstance(self._motion_lib, MotionLibCMG):
-            # 获取该motion对应的velocity command
-            motion_commands = self._motion_lib.get_motion_command(motion_ids)  # [n, 3] = (vx, vy, yaw)
-            self.commands[env_ids, 0] = motion_commands[:, 0]  # vx
-            self.commands[env_ids, 1] = motion_commands[:, 1]  # vy
-            self.commands[env_ids, 2] = motion_commands[:, 2]  # yaw
+        if body_pos.shape[1] != self._ref_body_pos[env_ids].shape[1]:
+            body_pos = g1_body_from_38_to_52(body_pos)
+        self._ref_body_pos[env_ids] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
     
+    def _reset_ref_motion_cmg(self, env_ids):
+        """Reset reference motion using CMG generated trajectory"""
+        n = len(env_ids)
+        
+        # Generate new trajectory for these environments
+        trajectory = self._generate_cmg_trajectory(env_ids)
+        
+        # Reset time offset to 0
+        self._motion_time_offsets[env_ids] = 0
+        
+        # Get initial frame (frame 0) for robot reset
+        init_dof_pos = trajectory[:, 0, :29]  # First 29 dims are dof_pos
+        init_dof_vel = trajectory[:, 0, 29:]  # Last 29 dims are dof_vel
+        
+        # Set reference states from CMG (simplified - no body_pos tracking)
+        self._ref_dof_pos[env_ids] = init_dof_pos[:, :self.num_dof]  # CMG has 29 dof, we use 23
+        self._ref_dof_vel[env_ids] = init_dof_vel[:, :self.num_dof]
+        
+        # Set default root states (standing pose, no tracking)
+        self._ref_root_pos[env_ids] = torch.tensor([0.0, 0.0, 0.75], device=self.device, dtype=torch.float).expand(n, -1)
+        self._ref_root_rot[env_ids] = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device, dtype=torch.float).expand(n, -1)  # Identity quaternion
+        self._ref_root_vel[env_ids] = torch.tensor([self.cfg.motion.cmg_velocity[0], 0.0, 0.0], device=self.device, dtype=torch.float).expand(n, -1)
+        self._ref_root_ang_vel[env_ids] = torch.tensor([0.0, 0.0, self.cfg.motion.cmg_velocity[2]], device=self.device, dtype=torch.float).expand(n, -1)
     
     def _update_ref_motion(self):
+        if self.use_cmg:
+            self._update_ref_motion_cmg()
+            return
+        
+        # Original motion library based update
         motion_ids = self._motion_ids
         motion_times = self._get_motion_times()
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
+        root_pos[:, 2] += self.cfg.motion.height_offset
+        root_pos[:, :2] += self.episode_init_origin[:, :2]
         
-        # 处理root位置/旋转
-        if root_pos is not None:
-            # Mocap模式：有完整的root轨迹
-            root_pos[:, 2] += self.cfg.motion.height_offset
-            root_pos[:, :2] += self.episode_init_origin[:, :2]
-            self._ref_root_pos[:] = root_pos
-            self._ref_root_rot[:] = root_rot
-        # CMG模式：root_pos=None，不更新位置
-        
-        # root_vel/root_ang_vel: CMG模式下来自velocity command
-        if root_vel is not None:
-            self._ref_root_vel[:] = root_vel
-            self._ref_root_ang_vel[:] = root_ang_vel
-        
+        self._ref_root_pos[:] = root_pos
+        self._ref_root_rot[:] = root_rot
+        self._ref_root_vel[:] = root_vel
+        self._ref_root_ang_vel[:] = root_ang_vel
         self._ref_dof_pos[:] = dof_pos
         self._ref_dof_vel[:] = dof_vel
-        
-        # body_pos: CMG模式下为None
-        if body_pos is not None:
-            if body_pos.shape[1] != self._ref_body_pos.shape[1]:
-                body_pos = g1_body_from_38_to_52(body_pos)
-            self._ref_body_pos[:] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
+        if body_pos.shape[1] != self._ref_body_pos.shape[1]:
+            body_pos = g1_body_from_38_to_52(body_pos)
+        self._ref_body_pos[:] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
     
-    def _resample_commands(self, env_ids):
-        """
-        覆写父类方法，CMG模式下从motion_lib获取命令而不是随机采样
-        CMG轨迹与特定velocity command绑定，不能随意更换
-        """
+    def _update_ref_motion_cmg(self):
+        """Update reference motion from CMG trajectory buffer"""
+        # Calculate current frame index in CMG trajectory
+        # CMG fps is 50, simulation dt is typically 0.005 (200Hz), decimation is 10
+        # So each policy step is 0.05s, matching CMG fps
+        frame_idx = (self.episode_length_buf * self.dt * self.cmg_fps).long()
+        frame_idx = torch.clamp(frame_idx, max=self.cmg_horizon_frames)
+        
+        # Index into trajectory buffer
+        batch_indices = torch.arange(self.num_envs, device=self.device)
+        current_frame = self.cmg_trajectories[batch_indices, frame_idx]  # [num_envs, 58]
+        
+        # Extract dof_pos and dof_vel (CMG outputs 29 dof, we use first 23)
+        self._ref_dof_pos[:] = current_frame[:, :self.num_dof]
+        self._ref_dof_vel[:] = current_frame[:, 29:29+self.num_dof]
+        
+        # Keep root states constant (no root position tracking for CMG)
+        # Root velocity is the commanded velocity
+        self._ref_root_vel[:, 0] = self.cfg.motion.cmg_velocity[0]  # vx
+        self._ref_root_vel[:, 1] = self.cfg.motion.cmg_velocity[1]  # vy
+        self._ref_root_ang_vel[:, 2] = self.cfg.motion.cmg_velocity[2]  # yaw rate
+    
+    def check_termination(self):
+        """Override to handle CMG trajectory end"""
+        if self.use_cmg:
+            # CMG mode: simplified termination check
+            contact_force_termination = torch.any(
+                torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1
+            )
+            self.reset_buf = contact_force_termination
+            
+            # Height check (absolute, not relative to ref)
+            height_cutoff = self.root_states[:, 2] < 0.4  # Too low
+            
+            roll_cut = torch.abs(self.roll) > self.cfg.rewards.termination_roll
+            pitch_cut = torch.abs(self.pitch) > self.cfg.rewards.termination_pitch
+            self.reset_buf |= roll_cut
+            self.reset_buf |= pitch_cut
+            self.reset_buf |= height_cutoff
+            
+            # CMG trajectory end
+            cmg_motion_end = self.episode_length_buf * self.dt >= self.cmg_horizon
+            if self.viewer is None:
+                self.reset_buf |= cmg_motion_end
+            
+            self.time_out_buf = self.episode_length_buf > self.max_episode_length
+            if self.viewer is None:
+                self.time_out_buf |= cmg_motion_end
+            
+            self.reset_buf |= self.time_out_buf
+            
+            vel_too_large = torch.norm(self.root_states[:, 7:10], dim=-1) > 5.
+            self.reset_buf |= vel_too_large
+        else:
+            super().check_termination()
+    
+    def reset_idx(self, env_ids, motion_ids=None):
+        """Override to handle CMG mode episode stats"""
         if len(env_ids) == 0:
             return
+        
+        # Fill extras with episode stats
+        self.extras["episode"] = {}
+        for key in self.episode_sums.keys():
+            if self.use_cmg:
+                # CMG mode: use fixed horizon length for normalization
+                self.extras["episode"]['metric_' + key] = torch.mean(
+                    self.episode_sums[key][env_ids] / self.cmg_horizon
+                )
+                self.extras["episode"]['rew_' + key] = torch.mean(
+                    self.episode_sums[key][env_ids] * self.reward_scales[key] / self.cmg_horizon
+                )
+            else:
+                # Original: use motion library length
+                self.extras["episode"]['metric_' + key] = torch.mean(
+                    self.episode_sums[key][env_ids] / self._motion_lib.get_motion_length(self._motion_ids[env_ids])
+                )
+                self.extras["episode"]['rew_' + key] = torch.mean(
+                    self.episode_sums[key][env_ids] * self.reward_scales[key] / self._motion_lib.get_motion_length(self._motion_ids[env_ids])
+                )
+            self.episode_sums[key][env_ids] = 0.
+        
+        if self.cfg.motion.motion_curriculum:
+            self._update_motion_difficulty(env_ids)
+        self._reset_ref_motion(env_ids=env_ids, motion_ids=motion_ids)
+        
+        vel_factor = 0.8
+
+        # RSI - Reference State Initialization
+        self._reset_dofs(env_ids, self._ref_dof_pos, self._ref_dof_vel * vel_factor)
+        self._reset_root_states(
+            env_ids=env_ids, 
+            root_vel=self._ref_root_vel * vel_factor, 
+            root_quat=self._ref_root_rot,
+            root_pos=self._ref_root_pos, 
+            root_ang_vel=self._ref_root_ang_vel * vel_factor
+        )
+
+        self.gym.simulate(self.sim)
+        self.gym.fetch_results(self.sim, True)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+
+        # Reset buffers
+        self.last_actions[env_ids] = 0.
+        self.last_dof_vel[env_ids] = 0.
+        self.last_torques[env_ids] = 0.
+        self.feet_air_time[env_ids] = 0.
+        self.reset_buf[env_ids] = 1
+        self.obs_history_buf[env_ids, :, :] = 0.
+        self.contact_buf[env_ids, :, :] = 0.
+        self.action_history_buf[env_ids, :, :] = 0.
+        self.feet_land_time[env_ids] = 0.
+        self.deviate_tracking_frames[env_ids] = 0.
+        self.deviate_vel_tracking_frames[env_ids] = 0.
+        self._reset_buffers_extra(env_ids)
+
+        self.episode_length_buf[env_ids] = 0
+        
+        if self.cfg.env.send_timeouts:
+            self.extras["time_outs"] = self.time_out_buf
+        
+        if self.cfg.motion.motion_curriculum and not self.use_cmg:
+            self.mean_motion_difficulty = torch.mean(self.motion_difficulty)
             
-        from pose.utils.motion_lib_cmg import MotionLibCMG
-        if isinstance(self._motion_lib, MotionLibCMG):
-            # CMG模式：命令已在_reset_ref_motion中设置，这里不重新采样
-            pass
-        else:
-            # Mocap模式：使用父类的随机采样
-            super()._resample_commands(env_ids)
+        _, _, y = euler_from_quaternion(self.root_states[:, 3:7])
+        self.init_yaw[env_ids] = y[env_ids]
+        return
         
     def _update_motion_difficulty(self, env_ids):
+        if self.use_cmg:
+            return  # No difficulty curriculum for CMG
         if self.obs_type == 'priv':
             super()._update_motion_difficulty(env_ids)
         elif self.obs_type == 'student':
@@ -215,34 +331,128 @@ class G1MimicDistill(HumanoidMimic):
             return
 
     def _get_body_indices(self):
-        upper_arm_names = [s for s in self.body_names if self.cfg.asset.upper_arm_name in s]
-        lower_arm_names = [s for s in self.body_names if self.cfg.asset.lower_arm_name in s]
         torso_name = [s for s in self.body_names if self.cfg.asset.torso_name in s]
         self.torso_indices = torch.zeros(len(torso_name), dtype=torch.long, device=self.device,
                                                  requires_grad=False)
         for j in range(len(torso_name)):
             self.torso_indices[j] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0],
                                                                                   torso_name[j])
-        self.upper_arm_indices = torch.zeros(len(upper_arm_names), dtype=torch.long, device=self.device,
-                                                     requires_grad=False)
-        for j in range(len(upper_arm_names)):
-            self.upper_arm_indices[j] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0],
-                                                                                upper_arm_names[j])
-        self.lower_arm_indices = torch.zeros(len(lower_arm_names), dtype=torch.long, device=self.device,
-                                                requires_grad=False)
-        for j in range(len(lower_arm_names)):
-            self.lower_arm_indices[j] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0],
-                                                                                lower_arm_names[j])
         knee_names = [s for s in self.body_names if self.cfg.asset.shank_name in s]
         self.knee_indices = torch.zeros(len(knee_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(knee_names)):
             self.knee_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], knee_names[i])
     
+    def _load_motions(self):
+        """Override to conditionally load motion library"""
+        if self.use_cmg:
+            # CMG mode: create a dummy motion lib for compatibility
+            # We still need it for some dimension calculations
+            print("[G1MimicDistill] CMG mode: Loading motion library for compatibility...")
+        # Always load motion library (needed for key_body_ids_motion even in CMG mode)
+        super()._load_motions()
+    
+    def _init_motion_buffers(self):
+        """Override to handle CMG mode"""
+        super()._init_motion_buffers()
+        
+        if self.use_cmg:
+            # Set max episode length based on CMG horizon
+            self.max_episode_length_s = self.cmg_horizon
+            self.max_episode_length = int(np.ceil(self.max_episode_length_s / self.dt))
+            print(f"[G1MimicDistill] CMG mode: max_episode_length = {self.max_episode_length} steps ({self.max_episode_length_s}s)")
+    
     def _init_buffers(self):
+        # Initialize CMG before calling super()._init_buffers() since it calls _load_motions()
+        if self.use_cmg:
+            self._init_cmg()
         super()._init_buffers()
         self.obs_history_buf = torch.zeros((self.num_envs, self.cfg.env.history_len, self.cfg.env.n_obs_single), device=self.device)
         self.privileged_obs_history_buf = torch.zeros((self.num_envs, self.cfg.env.history_len, self.cfg.env.n_priv_obs_single), device=self.device)
     
+    def _init_cmg(self):
+        """Initialize CMG model and related buffers"""
+        print("[G1MimicDistill] Initializing CMG motion generator...")
+        
+        # Load CMG data (stats and initial samples)
+        cmg_data = torch.load(self.cfg.motion.cmg_data_path, weights_only=False)
+        self.cmg_stats = cmg_data["stats"]
+        self.cmg_samples = cmg_data["samples"]
+        
+        # Initialize CMG model
+        self.cmg_model = CMG(
+            motion_dim=self.cmg_stats["motion_dim"],
+            command_dim=self.cmg_stats["command_dim"],
+            hidden_dim=512,
+            num_experts=4,
+            num_layers=3,
+        )
+        
+        # Load model weights
+        checkpoint = torch.load(self.cfg.motion.cmg_model_path, weights_only=False)
+        self.cmg_model.load_state_dict(checkpoint["model_state_dict"])
+        self.cmg_model = self.cmg_model.to(self.device)
+        self.cmg_model.eval()
+        
+        # Freeze CMG model
+        for param in self.cmg_model.parameters():
+            param.requires_grad = False
+        
+        # Precompute normalization tensors
+        self.cmg_motion_mean = torch.from_numpy(self.cmg_stats["motion_mean"]).float().to(self.device)
+        self.cmg_motion_std = torch.from_numpy(self.cmg_stats["motion_std"]).float().to(self.device)
+        self.cmg_cmd_min = torch.from_numpy(self.cmg_stats["command_min"]).float().to(self.device)
+        self.cmg_cmd_max = torch.from_numpy(self.cmg_stats["command_max"]).float().to(self.device)
+        
+        # CMG parameters
+        self.cmg_fps = self.cfg.motion.cmg_fps
+        self.cmg_horizon = self.cfg.motion.cmg_horizon
+        self.cmg_horizon_frames = int(self.cmg_horizon * self.cmg_fps)
+        self.cmg_velocity = torch.tensor(self.cfg.motion.cmg_velocity, device=self.device, dtype=torch.float)
+        
+        # Buffer for CMG trajectories: [num_envs, horizon_frames+1, motion_dim]
+        # motion_dim = 58 (29 dof_pos + 29 dof_vel)
+        self.cmg_trajectories = torch.zeros(
+            (self.num_envs, self.cmg_horizon_frames + 1, self.cmg_stats["motion_dim"]),
+            device=self.device, dtype=torch.float
+        )
+        
+        print(f"[G1MimicDistill] CMG initialized: velocity={self.cfg.motion.cmg_velocity}, horizon={self.cmg_horizon}s ({self.cmg_horizon_frames} frames)")
+    
+    @torch.no_grad()
+    def _generate_cmg_trajectory(self, env_ids):
+        """Generate reference trajectory using CMG for specified environments"""
+        n_envs = len(env_ids)
+        
+        # Get initial motion from CMG training samples (random sample)
+        sample_indices = torch.randint(0, len(self.cmg_samples), (n_envs,))
+        init_motions = torch.stack([
+            torch.from_numpy(self.cmg_samples[idx.item()]["motion"][0]).float()
+            for idx in sample_indices
+        ]).to(self.device)  # [n_envs, 58]
+        
+        # Normalize initial motion
+        current = (init_motions - self.cmg_motion_mean) / self.cmg_motion_std
+        
+        # Prepare fixed velocity command and normalize
+        command = self.cmg_velocity.unsqueeze(0).expand(n_envs, -1)  # [n_envs, 3]
+        command_norm = (command - self.cmg_cmd_min) / (self.cmg_cmd_max - self.cmg_cmd_min) * 2 - 1
+        
+        # Generate trajectory autoregressively
+        trajectory = [current.clone()]
+        for t in range(self.cmg_horizon_frames):
+            pred = self.cmg_model(current, command_norm)
+            trajectory.append(pred.clone())
+            current = pred
+        
+        # Stack and denormalize
+        trajectory = torch.stack(trajectory, dim=1)  # [n_envs, horizon+1, 58]
+        trajectory = trajectory * self.cmg_motion_std + self.cmg_motion_mean
+        
+        # Store in buffer
+        self.cmg_trajectories[env_ids] = trajectory
+        
+        return trajectory
+
     def _get_noise_scale_vec(self, cfg):
         noise_scale_vec = torch.zeros(1, self.cfg.env.n_proprio, device=self.device)
         if not self.cfg.noise.add_noise:
@@ -258,20 +468,10 @@ class G1MimicDistill(HumanoidMimic):
         return noise_scale_vec
             
     def _get_mimic_obs(self):
-        """
-        获取模仿学习观测
+        if self.use_cmg:
+            return self._get_mimic_obs_cmg()
         
-        CMG模式下的特权信息说明:
-        - root_vel/root_ang_vel: 来自velocity command，表示期望的运动方向
-        - root_pos/root_rot: 使用仿真器当前状态（CMG无法提供世界坐标轨迹）
-        - body_pos: 使用仿真器当前状态（CMG不提供FK）
-        - dof_pos/dof_vel: 来自CMG生成的参考动作
-        
-        返回:
-            priv_mimic_obs: Teacher用的特权motion观测
-            mimic_obs: Student用的motion观测（仅dof_pos）
-            cmg_obs_seq: CMG生成的dof序列
-        """
+        # Original motion library based observation
         num_steps = self._tar_obs_steps.shape[0]
         assert num_steps > 0, "Invalid number of target observation steps"
         motion_times = self._get_motion_times().unsqueeze(-1)
@@ -279,24 +479,7 @@ class G1MimicDistill(HumanoidMimic):
         motion_ids_tiled = torch.broadcast_to(self._motion_ids.unsqueeze(-1), obs_motion_times.shape)
         motion_ids_tiled = motion_ids_tiled.flatten()
         obs_motion_times = obs_motion_times.flatten()
-        n_flat = motion_ids_tiled.shape[0]
-        
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids_tiled, obs_motion_times)
-        
-        # CMG模式：root_pos/root_rot为None，使用仿真器当前状态
-        if root_pos is None:
-            root_pos = self.root_states[:, :3].unsqueeze(1).expand(-1, num_steps, -1).reshape(n_flat, 3)
-            root_rot = self.root_states[:, 3:7].unsqueeze(1).expand(-1, num_steps, -1).reshape(n_flat, 4)
-        
-        # CMG模式：root_vel/root_ang_vel来自velocity command（期望速度）
-        # 这是有效的特权信息：告诉Teacher期望的运动方向
-        if root_vel is None:
-            root_vel = self.root_states[:, 7:10].unsqueeze(1).expand(-1, num_steps, -1).reshape(n_flat, 3)
-            root_ang_vel = self.root_states[:, 10:13].unsqueeze(1).expand(-1, num_steps, -1).reshape(n_flat, 3)
-        
-        # body_pos: 使用仿真器当前状态（CMG不提供）
-        if body_pos is None:
-            body_pos = self.rigid_body_states[:, :, :3].unsqueeze(1).expand(-1, num_steps, -1, -1).reshape(n_flat, -1, 3)
         
         roll, pitch, yaw = euler_from_quaternion(root_rot)
         roll = roll.reshape(self.num_envs, num_steps, 1)
@@ -316,38 +499,97 @@ class G1MimicDistill(HumanoidMimic):
         root_rot = root_rot.reshape(self.num_envs, num_steps, root_rot.shape[-1])
         root_ang_vel = root_ang_vel.reshape(self.num_envs, num_steps, root_ang_vel.shape[-1])
         dof_pos = dof_pos.reshape(self.num_envs, num_steps, dof_pos.shape[-1])
-        dof_vel = dof_vel.reshape(self.num_envs, num_steps, dof_vel.shape[-1])
      
-        # teacher v0: 包含root高度、姿态、速度和key_body位置
-        # 注意：CMG模式下root_vel来自velocity command，是有效的特权信息
+        # teacher v0
         priv_mimic_obs_buf = torch.cat((
-            root_pos[..., 2:3], # 1 dim - 当前高度（从仿真器）
-            roll, pitch, yaw, # 3 dims - 当前姿态（从仿真器）
-            root_vel, # 3 dims - 期望速度（CMG: velocity command, mocap: 参考轨迹）
-            root_ang_vel[..., 2:3], # 1 dim - 期望yaw角速度
-            dof_pos, # num_dof dims - 参考关节位置（CMG生成）
-            whole_key_body_pos, # num_bodies * 3 dims - body位置（从仿真器）
-        ), dim=-1)
+            root_pos[..., 2:3], # 1 dim
+            roll, pitch, yaw, # 3 dims
+            root_vel, # 3 dims
+            root_ang_vel[..., 2:3], # 1 dim, yaw only
+            dof_pos, # num_dof dims
+            whole_key_body_pos, # num_bodies * 3 dims
+        ), dim=-1) # shape: (num_envs, num_steps, 7 + num_dof + num_key_bodies * 3)
         
-        # v6, align mocap - Student只用第一帧的dof_pos
-        mimic_obs_buf = dof_pos[:, 0:1]
-
-        # CMG观测序列: dof_pos + dof_vel
-        cmg_obs_seq = torch.cat((
-            dof_pos,
-            dof_vel,
-        ), dim=-1)
         
-        return (
-            priv_mimic_obs_buf.reshape(self.num_envs, -1),
-            mimic_obs_buf.reshape(self.num_envs, -1),
-            cmg_obs_seq.reshape(self.num_envs, -1),
-        )
+        # v6, align mocap
+        mimic_obs_buf = torch.cat((
+            root_pos[..., 2:3], # 1 dim
+            roll, pitch, yaw, # 3 dims
+            root_vel, # 3 dims
+            root_ang_vel[..., 2:3], # 1 dim, yaw only
+            dof_pos, # num_dof dims
+        ), dim=-1)[:, 0:1] # shape: (num_envs, 1, 7 + num_dof)
+        
+        
+        return priv_mimic_obs_buf.reshape(self.num_envs, -1), mimic_obs_buf.reshape(self.num_envs, -1)
+    
+    def _get_mimic_obs_cmg(self):
+        """Get mimic observations from CMG trajectory buffer"""
+        num_steps = self._tar_obs_steps.shape[0]
+        
+        # Calculate current frame and future frame indices
+        current_frame = (self.episode_length_buf * self.dt * self.cmg_fps).long()
+        
+        # tar_obs_steps is [1, 5, 10, ...] - steps into the future
+        # Convert to CMG frame indices
+        # Policy dt = sim_dt * decimation = 0.002 * 10 = 0.02s, CMG dt = 1/50 = 0.02s, so they match
+        future_frames = current_frame.unsqueeze(-1) + self._tar_obs_steps.unsqueeze(0)  # [num_envs, num_steps]
+        future_frames = torch.clamp(future_frames, max=self.cmg_horizon_frames)
+        
+        # Index into CMG trajectory buffer
+        batch_indices = torch.arange(self.num_envs, device=self.device).unsqueeze(-1).expand(-1, num_steps)
+        future_motion = self.cmg_trajectories[batch_indices, future_frames]  # [num_envs, num_steps, 58]
+        
+        # Extract dof_pos from CMG output (first 29 dims, we use first num_dof)
+        dof_pos = future_motion[..., :self.num_dof]  # [num_envs, num_steps, num_dof]
+        
+        # For CMG, we don't have root pose tracking, so use constant values
+        # root_height = 0.75 (standing height)
+        root_height = torch.ones((self.num_envs, num_steps, 1), device=self.device) * 0.75
+        
+        # Orientation: standing upright (roll=0, pitch=0, yaw=0)
+        roll = torch.zeros((self.num_envs, num_steps, 1), device=self.device)
+        pitch = torch.zeros((self.num_envs, num_steps, 1), device=self.device)
+        yaw = torch.zeros((self.num_envs, num_steps, 1), device=self.device)
+        
+        # Root velocity: from CMG config (1.5, 0, 0)
+        root_vel = torch.zeros((self.num_envs, num_steps, 3), device=self.device)
+        root_vel[..., 0] = self.cfg.motion.cmg_velocity[0]
+        root_vel[..., 1] = self.cfg.motion.cmg_velocity[1]
+        
+        # Root angular velocity: yaw rate from config
+        root_ang_vel_yaw = torch.ones((self.num_envs, num_steps, 1), device=self.device) * self.cfg.motion.cmg_velocity[2]
+        
+        # For key body positions, use zeros (simplified - no keybody tracking)
+        # Original: 9 key bodies * 3 dims = 27 dims
+        num_key_bodies = len(self.cfg.motion.key_bodies)
+        whole_key_body_pos = torch.zeros((self.num_envs, num_steps, num_key_bodies * 3), device=self.device)
+        
+        # teacher v0 format
+        priv_mimic_obs_buf = torch.cat((
+            root_height,  # 1 dim
+            roll, pitch, yaw,  # 3 dims
+            root_vel,  # 3 dims
+            root_ang_vel_yaw,  # 1 dim
+            dof_pos,  # num_dof dims (23)
+            whole_key_body_pos,  # num_key_bodies * 3 dims (27)
+        ), dim=-1)  # shape: (num_envs, num_steps, 8 + 23 + 27 = 58)
+        
+        # v6 format for student
+        mimic_obs_buf = torch.cat((
+            root_height,  # 1 dim
+            roll, pitch, yaw,  # 3 dims
+            root_vel,  # 3 dims
+            root_ang_vel_yaw,  # 1 dim
+            dof_pos,  # num_dof dims
+        ), dim=-1)[:, 0:1]  # Only first step for student
+        
+        return priv_mimic_obs_buf.reshape(self.num_envs, -1), mimic_obs_buf.reshape(self.num_envs, -1)
 
     def compute_observations(self):
         imu_obs = torch.stack((self.roll, self.pitch), dim=1)
         self.base_yaw_quat = quat_from_euler_xyz(0*self.yaw, 0*self.yaw, self.yaw)
-        priv_mimic_obs, mimic_obs, cmg_obs_seq = self._get_mimic_obs()
+        priv_mimic_obs, mimic_obs = self._get_mimic_obs()
         
         proprio_obs_buf = torch.cat((
                             self.base_ang_vel  * self.obs_scales.ang_vel,   # 3 dims
@@ -396,25 +638,9 @@ class G1MimicDistill(HumanoidMimic):
         
         priv_obs_buf = torch.cat((
             priv_mimic_obs,
-            cmg_obs_seq,
             proprio_obs_buf,
             priv_info,
         ), dim=-1)
-
-        if self.common_step_counter < 5:
-            obs_mean = obs_buf.mean().item()
-            obs_std = obs_buf.std().item()
-            priv_mean = priv_obs_buf.mean().item()
-            priv_std = priv_obs_buf.std().item()
-            obs_min = obs_buf.min().item()
-            obs_max = obs_buf.max().item()
-            priv_min = priv_obs_buf.min().item()
-            priv_max = priv_obs_buf.max().item()
-            print(
-                f"[DEBUG OBS] step={self.common_step_counter} "
-                f"obs(mean={obs_mean:.4f}, std={obs_std:.4f}, min={obs_min:.4f}, max={obs_max:.4f}) "
-                f"priv(mean={priv_mean:.4f}, std={priv_std:.4f}, min={priv_min:.4f}, max={priv_max:.4f})"
-            )
         
         self.privileged_obs_buf = priv_obs_buf
         
@@ -467,44 +693,3 @@ class G1MimicDistill(HumanoidMimic):
     
     def _reward_ankle_action(self):
         return torch.norm(self.action_history_buf[:, -1, [4, 5, 10, 11]], dim=1)
-
-    ############################################################################################################
-    ################################# Locomotion Reward Functions (New) #######################################
-    ############################################################################################################
-    
-    def _reward_tracking_lin_vel(self):
-        """
-        奖励base线速度接近命令（vx, vy）
-        关键：使机器人根据速度命令行走
-        
-        【渐进机制】：初期为0，当tracking_joint_dof达到阈值后逐步启用
-        实际奖励 = 基础奖励 × velocity_reward_scale
-        """
-        # commands[:, 0] = vx (前进速度)
-        # commands[:, 1] = vy (侧向速度)
-        # base_lin_vel[:, :2] = 实际的xy速度
-        lin_vel_error = torch.sum(torch.square(
-            self.commands[:, :2] - self.base_lin_vel[:, :2]
-        ), dim=1)
-        base_reward = torch.exp(-lin_vel_error / 0.25)
-        
-        # 应用渐进系数
-        return base_reward * self.velocity_reward_scale
-    
-    def _reward_tracking_ang_vel(self):
-        """
-        奖励base角速度接近命令（yaw）
-        关键：使机器人根据角速度命令转向
-        
-        【渐进机制】：初期为0，当tracking_joint_dof达到阈值后逐步启用
-        实际奖励 = 基础奖励 × velocity_reward_scale
-        """
-        # commands[:, 2] = yaw (转向角速度)
-        # base_ang_vel[:, 2] = 实际的yaw角速度
-        ang_vel_error = torch.square(
-            self.commands[:, 2] - self.base_ang_vel[:, 2]
-        )
-        base_reward = torch.exp(-ang_vel_error / 0.25)
-        
-        # 应用渐进系数
-        return base_reward * self.velocity_reward_scale
