@@ -229,6 +229,7 @@ class OnPolicyRunnerMimic:
             regularization_scale = self.env.cfg.rewards.regularization_scale if hasattr(self.env.cfg.rewards, "regularization_scale") else 1
             average_episode_length = torch.mean(self.env.episode_length.float()).item() if hasattr(self.env, "episode_length") else 0
             mean_motion_difficulty = self.env.mean_motion_difficulty if hasattr(self.env, "mean_motion_difficulty") else 0
+            curriculum_level = self.env.curriculum_level if hasattr(self.env, "curriculum_level") else 0
             mean_value_loss, mean_surrogate_loss, mean_priv_reg_loss, priv_reg_coef, mean_grad_penalty_loss, grad_penalty_coef = self.alg.update()
             if hist_encoding and not self.cfg["algorithm_class_name"] == "PPO":
                 print("Updating dagger...")
@@ -297,6 +298,9 @@ class OnPolicyRunnerMimic:
         
         if locs['mean_motion_difficulty'] != 0:
             wandb_dict['Scale/motion_difficulty'] = locs["mean_motion_difficulty"]
+        
+        if locs['curriculum_level'] != 0:
+            wandb_dict['Scale/curriculum_level'] = locs["curriculum_level"]
 
         wandb_dict['Policy/mean_noise_std'] = mean_std.item()
         wandb_dict['Perf/total_fps'] = fps

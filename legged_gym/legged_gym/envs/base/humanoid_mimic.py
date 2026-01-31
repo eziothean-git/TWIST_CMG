@@ -37,8 +37,14 @@ class HumanoidMimic(HumanoidChar):
         self.episode_length = torch.zeros((self.num_envs), device=self.device)
         self.feet_height = torch.zeros((self.num_envs, 2), device=self.device)
         num_motions = self._motion_lib.num_motions()
-        self.motion_difficulty = 9 * torch.ones((num_motions), device=self.device, dtype=torch.float)
-        self.mean_motion_difficulty = 9.
+        
+        # 课程学习系统
+        # motion_difficulty: 训练进度指标 (1=差, 9=好), 基于完成率
+        # curriculum_level: 命令范围难度 (0~1), 基于训练迭代
+        self.motion_difficulty = 1.0 * torch.ones((num_motions), device=self.device, dtype=torch.float)  # 初始=1(差)
+        self.mean_motion_difficulty = 1.0
+        self.curriculum_level = 0.0  # 初始命令范围最小
+        self.curriculum_max_iters = getattr(cfg.motion, 'curriculum_max_iters', 15000)  # 达到最大难度的迭代数
         self.motion_termination_dist = torch.ones((num_motions), device=self.device, dtype=torch.float)
         self.motion_names = self._motion_lib.get_motion_names()
         self.deviate_tracking_frames = torch.zeros((self.num_envs), device=self.device, dtype=torch.float)
@@ -106,7 +112,19 @@ class HumanoidMimic(HumanoidChar):
     def _reset_ref_motion(self, env_ids, motion_ids=None):
         n = len(env_ids)
         if motion_ids is None:
-            motion_ids = self._motion_lib.sample_motions(n, motion_difficulty=self.motion_difficulty)
+            # CMG模式：使用curriculum_level控制采样范围
+            if hasattr(self._motion_lib, 'sample_motions'):
+                from pose.utils.motion_lib_cmg import MotionLibCMG
+                if isinstance(self._motion_lib, MotionLibCMG):
+                    motion_ids = self._motion_lib.sample_motions(
+                        n, 
+                        motion_difficulty=self.motion_difficulty,
+                        curriculum_level=self.curriculum_level
+                    )
+                else:
+                    motion_ids = self._motion_lib.sample_motions(n, motion_difficulty=self.motion_difficulty)
+            else:
+                motion_ids = self._motion_lib.sample_motions(n, motion_difficulty=self.motion_difficulty)
         
         if self._rand_reset:
             motion_times = self._motion_lib.sample_time(motion_ids)
@@ -285,22 +303,33 @@ class HumanoidMimic(HumanoidChar):
         self.gym.refresh_rigid_body_state_tensor(self.sim)
     
     def _update_motion_difficulty(self, env_ids):
-        reset_motion_ids = self._motion_ids[env_ids] # get motion ids that are being reset
-        completion_rate = self.episode_length_buf[env_ids] * self.dt / self._motion_lib.get_motion_length(reset_motion_ids) # get completion rate of each environment
-        # get mean completion rate of each motion
+        """更新motion_difficulty作为训练进度指标（基于完成率）"""
+        reset_motion_ids = self._motion_ids[env_ids]
+        completion_rate = self.episode_length_buf[env_ids] * self.dt / self._motion_lib.get_motion_length(reset_motion_ids)
+        
+        # 计算每个motion的平均完成率
         motion_completion_rate_sum = torch.zeros(self._motion_lib.num_motions(), device=self.device, dtype=torch.float).scatter_add(0, reset_motion_ids, completion_rate)
         motion_completion_rate_count = torch.zeros(self._motion_lib.num_motions(), device=self.device, dtype=torch.float).scatter_add(0, reset_motion_ids, torch.ones_like(completion_rate, dtype=torch.float))
         motion_completion_rate = motion_completion_rate_sum / torch.clamp(motion_completion_rate_count, min=1)
-        motion_completion_rate[motion_completion_rate_count == 0] = 0.7
-        # update motion difficulty
-        add_idx = motion_completion_rate <= 0.5
-        sub_idx = motion_completion_rate >= 0.95
-        self.motion_difficulty[add_idx] *= (1 + self.cfg.motion.motion_curriculum_gamma)
-        self.motion_difficulty[sub_idx] *= (1 - self.cfg.motion.motion_curriculum_gamma)
+        motion_completion_rate[motion_completion_rate_count == 0] = 0.5
+        
+        # motion_difficulty 作为进度指标：完成率越高，difficulty越高（表示训练越好）
+        # 范围 1~9，其中 1=0%完成率，9=100%完成率
+        gamma = self.cfg.motion.motion_curriculum_gamma
+        for i in range(self._motion_lib.num_motions()):
+            if motion_completion_rate_count[i] > 0:
+                # 基于完成率平滑更新
+                target_difficulty = 1 + 8 * motion_completion_rate[i]  # 映射到1~9
+                self.motion_difficulty[i] = (1 - gamma) * self.motion_difficulty[i] + gamma * target_difficulty
+        
         self.motion_difficulty = torch.clamp(self.motion_difficulty, min=1., max=9.)
         
+        # 更新mean_motion_difficulty用于日志
+        self.mean_motion_difficulty = self.motion_difficulty.mean().item()
+        
+        # termination_dist 与 difficulty 正相关（训练好了可以容忍更大误差？反过来：训练差时严格一点）
         motion_difficulty_ratio = (self.motion_difficulty - 1) / 8
-        self.motion_termination_dist = (self._pose_termination_dist - 0.1) * motion_difficulty_ratio + 0.1 # when motion difficulty is 1, termination dist is 0.1
+        self.motion_termination_dist = (self._pose_termination_dist - 0.1) * motion_difficulty_ratio + 0.1
     
     def _post_physics_step_callback(self):
         """ Callback called before computing terminations, rewards, and observations
@@ -308,12 +337,25 @@ class HumanoidMimic(HumanoidChar):
         """
         self._update_ref_motion()
         # self._hard_sync_motion_loop()
+        
+        # 更新curriculum_level（基于训练步数）
+        self._update_curriculum_level()
 
         if self.cfg.domain_rand.push_robots and  (self.common_step_counter % self.cfg.domain_rand.push_interval == 0):
             self._push_robots()
         
         if self.cfg.domain_rand.push_end_effector and (self.common_step_counter % self.cfg.domain_rand.push_end_effector_interval == 0):
             self._push_end_effector()
+    
+    def _update_curriculum_level(self):
+        """基于训练步数更新curriculum_level，控制命令范围"""
+        # common_step_counter 是仿真步数，每个iteration有 num_steps_per_env 步
+        # 估算当前迭代数：steps / num_steps_per_env
+        num_steps_per_env = getattr(self.cfg.runner, 'num_steps_per_env', 24)
+        estimated_iters = self.common_step_counter / num_steps_per_env
+        
+        # curriculum_level 从0线性增长到1
+        self.curriculum_level = min(1.0, estimated_iters / self.curriculum_max_iters)
             
     def check_termination(self):
         contact_force_termination = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)

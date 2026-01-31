@@ -354,18 +354,59 @@ class MotionLibCMG:
             return self._motion_lengths[motion_ids]
         return self._motion_lengths[motion_ids]
     
-    def sample_motions(self, n: int, motion_difficulty=None) -> torch.Tensor:
+    def sample_motions(self, n: int, motion_difficulty=None, curriculum_level: float = None) -> torch.Tensor:
         """
-        从动作池中随机采样
+        从动作池中采样，支持基于curriculum_level的筛选
         
         Args:
             n: 采样数量
             motion_difficulty: 未使用（兼容接口）
+            curriculum_level: 课程难度 (0~1)，控制命令范围
+                - 0: 只采样低速命令 (|vx|<0.5, |vy|<0.2, |yaw|<0.2)
+                - 1: 全范围采样
         
         Returns:
             motion_ids: [n] 采样的动作索引
         """
-        return torch.randint(0, self._num_motions, (n,), device=self.device)
+        if curriculum_level is None or curriculum_level >= 0.99:
+            # 全范围随机采样
+            return torch.randint(0, self._num_motions, (n,), device=self.device)
+        
+        # 基于curriculum_level筛选合适的motion
+        # 计算每个motion的"难度"（基于命令大小）
+        commands = self.motion_commands  # [num_motions, 3] (vx, vy, yaw)
+        
+        # 定义最大命令范围
+        max_vx, max_vy, max_yaw = 3.0, 0.8, 0.8
+        min_vx, min_vy, min_yaw = 0.5, 0.2, 0.2
+        
+        # 当前允许的范围 = min + curriculum_level * (max - min)
+        curr_vx = min_vx + curriculum_level * (max_vx - min_vx)
+        curr_vy = min_vy + curriculum_level * (max_vy - min_vy)
+        curr_yaw = min_yaw + curriculum_level * (max_yaw - min_yaw)
+        
+        # 筛选符合条件的motion
+        valid_mask = (
+            (torch.abs(commands[:, 0]) <= curr_vx) &
+            (torch.abs(commands[:, 1]) <= curr_vy) &
+            (torch.abs(commands[:, 2]) <= curr_yaw)
+        )
+        valid_indices = valid_mask.nonzero(as_tuple=True)[0]
+        
+        if len(valid_indices) < n:
+            # 如果符合条件的不够，允许一些越界
+            # 按命令大小排序，取最小的前N个
+            cmd_magnitude = (
+                (commands[:, 0] / max_vx).abs() +
+                (commands[:, 1] / max_vy).abs() +
+                (commands[:, 2] / max_yaw).abs()
+            )
+            sorted_indices = torch.argsort(cmd_magnitude)
+            valid_indices = sorted_indices[:max(n, self._num_motions // 4)]
+        
+        # 从有效索引中随机采样
+        sample_idx = torch.randint(0, len(valid_indices), (n,), device=self.device)
+        return valid_indices[sample_idx]
     
     def sample_time(self, motion_ids: torch.Tensor) -> torch.Tensor:
         """

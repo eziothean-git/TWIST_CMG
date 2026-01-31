@@ -319,7 +319,9 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         
     class motion(HumanoidMimicCfg.motion):
         motion_curriculum = True
-        motion_curriculum_gamma = 0.01
+        motion_curriculum_gamma = 0.1  # 加快更新速度，因为现在是进度指标
+        curriculum_max_iters = 15000   # 15k迭代后命令范围达到最大
+        
         # 使用机器人实际的link名称（不是mocap标记点）
         key_bodies = ["left_rubber_hand", "right_rubber_hand", "left_ankle_roll_link", "right_ankle_roll_link", "left_knee_link", "right_knee_link", "left_elbow_link", "right_elbow_link", "head_link"] # 9 key bodies
         upper_key_bodies = ["left_rubber_hand", "right_rubber_hand", "left_elbow_link", "right_elbow_link", "head_link"]
