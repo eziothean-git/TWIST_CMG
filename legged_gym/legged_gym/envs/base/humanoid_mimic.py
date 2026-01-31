@@ -90,6 +90,13 @@ class HumanoidMimic(HumanoidChar):
         self._ref_dof_pos = torch.zeros_like(self.dof_pos)
         self._ref_dof_vel = torch.zeros_like(self.dof_vel)
         
+        # 调试打印：确认维度
+        cprint(f"[DEBUG] self.num_dof = {self.num_dof}", "yellow")
+        cprint(f"[DEBUG] self.num_actions = {self.num_actions}", "yellow")
+        cprint(f"[DEBUG] self.dof_pos.shape = {self.dof_pos.shape}", "yellow")
+        cprint(f"[DEBUG] self._ref_dof_pos.shape = {self._ref_dof_pos.shape}", "yellow")
+        cprint(f"[DEBUG] CMG dof_dim = {self._motion_lib.dof_dim}", "yellow")
+        
         # CMG模式不提供body_pos参考，因此禁用基于body_pos的termination
         # 通过检查motion_lib类型来判断
         from pose.utils.motion_lib_cmg import MotionLibCMG
@@ -135,6 +142,15 @@ class HumanoidMimic(HumanoidChar):
         self._motion_time_offsets[env_ids] = motion_times
         
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
+        
+        # 调试打印：确认CMG返回的维度
+        if dof_pos.shape[-1] != self._ref_dof_pos.shape[-1]:
+            cprint(f"[ERROR] DOF维度不匹配! CMG dof_pos: {dof_pos.shape}, _ref_dof_pos: {self._ref_dof_pos.shape}", "red")
+            # 临时修复：截断或填充
+            if dof_pos.shape[-1] > self._ref_dof_pos.shape[-1]:
+                cprint(f"[WARNING] 截断CMG dof_pos从{dof_pos.shape[-1]}到{self._ref_dof_pos.shape[-1]}", "yellow")
+                dof_pos = dof_pos[:, :self._ref_dof_pos.shape[-1]]
+                dof_vel = dof_vel[:, :self._ref_dof_vel.shape[-1]]
         
         # 处理root信息
         if root_pos is not None:
@@ -200,6 +216,11 @@ class HumanoidMimic(HumanoidChar):
         motion_ids = self._motion_ids
         motion_times = self._get_motion_times()
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
+        
+        # 维度修正：CMG输出29 DOF，但仿真器可能是23 DOF
+        if dof_pos.shape[-1] != self._ref_dof_pos.shape[-1]:
+            dof_pos = dof_pos[:, :self._ref_dof_pos.shape[-1]]
+            dof_vel = dof_vel[:, :self._ref_dof_vel.shape[-1]]
         
         # 处理root位置/旋转
         if root_pos is not None:
