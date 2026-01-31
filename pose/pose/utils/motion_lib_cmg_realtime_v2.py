@@ -98,22 +98,22 @@ class MotionLibCMGRealtime:
         # motion_buffer[env_id, frame_idx] = [dof_pos(29), dof_vel(29)]
         self.motion_buffer = torch.zeros(num_envs, self.buffer_frames, 58, device=device, dtype=torch.float32)
         
-        # 缓冲帧索引 [num_envs] - 当前读取位置
-        self.buffer_read_idx = torch.zeros(num_envs, dtype=torch.long, device=device)
+        # 缓冲帧索引 [num_envs] - 当前读取位置 【放在CPU避免GPU索引错误】
+        self.buffer_read_idx = torch.zeros(num_envs, dtype=torch.long, device='cpu')
         
-        # ===== 推理触发标志 =====
+        # ===== 推理触发标志【全部放在CPU避免GPU assert】=====
         # 哪些环境需要重新推理（缓冲耗尽或命令变化）
-        self.needs_inference = torch.ones(num_envs, dtype=torch.bool, device=device)
+        self.needs_inference = torch.ones(num_envs, dtype=torch.bool, device='cpu')
         
         # ===== 环境状态 =====
         # 当前speed命令 [num_envs, 3]
         self.commands = torch.zeros(num_envs, 3, device=device, dtype=torch.float32)
         
-        # 落地稳定计数器 [num_envs]
-        self.settle_counter = torch.zeros(num_envs, dtype=torch.long, device=device)
+        # 落地稳定计数器 [num_envs] 【放在CPU】
+        self.settle_counter = torch.zeros(num_envs, dtype=torch.long, device='cpu')
         
-        # 环境是否已初始化
-        self.is_initialized = torch.zeros(num_envs, dtype=torch.bool, device=device)
+        # 环境是否已初始化 【放在CPU】
+        self.is_initialized = torch.zeros(num_envs, dtype=torch.bool, device='cpu')
         
         # ===== 监控 =====
         self.inference_count = 0
