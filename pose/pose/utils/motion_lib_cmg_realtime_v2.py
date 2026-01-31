@@ -1,17 +1,10 @@
 """
-MotionLibCMGRealtime v2: 每环境独立CMG实例 + 批量同步推理
+MotionLibCMGRealtime v3: 简化设计，避免复杂的张量索引
 
-核心设计（用户需求）：
-1. 每个环境维护独立的CMG推理状态（当前动作状态）
-2. 每个环境维护2秒的参考动作缓冲（100帧 @ 50fps）
-3. 触发条件：环境reset或command变化或缓冲耗尽
-4. 推理方式：批量同步推理所有需要更新的环境
-5. 初始条件：始终以当前机器人关节角度作为CMG输入
-6. 同步限制：确保所有环境同步更新，避免异步问题
-
-关键参数：
-- 4090显存限制 → 最大环境数由单次批量推理确定
-- 推理频率 ≠ 模拟频率 → 需要检验
+核心改进：
+- 用纯Python dict/list管理环境状态（buffer_idx, needs_inference等）
+- GPU张量只用于批量推理的输入输出
+- 完全避免混用CPU/GPU张量的索引操作
 """
 
 import os
@@ -23,7 +16,6 @@ from typing import Optional, Tuple, List, Dict
 from termcolor import cprint
 
 def _get_project_root():
-    """获取TWIST_CMG根目录"""
     current_file = Path(__file__).resolve()
     return current_file.parent.parent.parent.parent
 
@@ -38,11 +30,11 @@ for path in [str(PROJECT_ROOT), str(CMG_REF_DIR),
 
 class MotionLibCMGRealtime:
     """
-    每环境独立CMG + 2s参考缓冲 + 批量同步推理
+    每环境独立CMG + 2s参考缓冲 + 纯Python状态管理
     """
     
-    SETTLE_TIME = 1.0      # 落地稳定期（秒）
-    BUFFER_TIME = 2.0      # 参考缓冲时长（秒）
+    SETTLE_TIME = 1.0
+    BUFFER_TIME = 2.0
     
     def __init__(
         self,
@@ -53,80 +45,49 @@ class MotionLibCMGRealtime:
         dof_dim: int = 29,
         fps: float = 50.0,
     ):
-        """
-        初始化CMG实时库（v2架构）
-        
-        Args:
-            cmg_model_path: CMG模型路径
-            cmg_data_path: CMG数据路径
-            num_envs: 环境数量
-            device: PyTorch设备
-            dof_dim: 关节自由度
-            fps: 模拟帧率
-        """
         self.device = device
         self.num_envs = num_envs
         self.dof_dim = dof_dim
         self.fps = fps
         self.dt = 1.0 / fps
         
-        # 推理相关
-        self.settle_frames = int(self.SETTLE_TIME * fps)  # 落地稳定帧数
-        self.buffer_frames = int(self.BUFFER_TIME * fps)  # 2s缓冲帧数
+        self.settle_frames = int(self.SETTLE_TIME * fps)
+        self.buffer_frames = int(self.BUFFER_TIME * fps)
+        self.batch_size = 128
         
-        cprint(f"[MotionLibCMGRealtime v2] 初始化", "green")
+        cprint(f"[MotionLibCMGRealtime v3] 初始化", "green")
         cprint(f"  - 环境数: {num_envs}", "green")
         cprint(f"  - DOF维度: {dof_dim}", "green")
         cprint(f"  - 帧率: {fps} Hz", "green")
-        cprint(f"  - 落地稳定: {self.SETTLE_TIME}s ({self.settle_frames} frames)", "green")
         cprint(f"  - 参考缓冲: {self.BUFFER_TIME}s ({self.buffer_frames} frames)", "green")
         
-        # 加载CMG模型和统计信息
+        # 加载模型
         self.model, self.stats = self._load_cmg_model(cmg_model_path, cmg_data_path)
         
-        # 归一化参数
+        # 归一化参数（GPU）
         self.motion_mean = torch.from_numpy(np.ascontiguousarray(self.stats["motion_mean"])).to(device)
         self.motion_std = torch.from_numpy(np.ascontiguousarray(self.stats["motion_std"])).to(device)
         self.cmd_min = torch.from_numpy(np.ascontiguousarray(self.stats["command_min"])).to(device)
         self.cmd_max = torch.from_numpy(np.ascontiguousarray(self.stats["command_max"])).to(device)
         
-        # ===== 每环境维护的状态 =====
-        # 当前CMG推理状态 [num_envs, 58]
+        # GPU张量：仅用于推理
         self.current_state = torch.zeros(num_envs, 58, device=device, dtype=torch.float32)
-        
-        # 参考动作缓冲 [num_envs, buffer_frames, 58]
-        # motion_buffer[env_id, frame_idx] = [dof_pos(29), dof_vel(29)]
         self.motion_buffer = torch.zeros(num_envs, self.buffer_frames, 58, device=device, dtype=torch.float32)
-        
-        # 缓冲帧索引 [num_envs] - 当前读取位置 【放在CPU避免GPU索引错误】
-        self.buffer_read_idx = torch.zeros(num_envs, dtype=torch.long, device='cpu')
-        
-        # ===== 推理触发标志【全部放在CPU避免GPU assert】=====
-        # 哪些环境需要重新推理（缓冲耗尽或命令变化）
-        self.needs_inference = torch.ones(num_envs, dtype=torch.bool, device='cpu')
-        
-        # ===== 环境状态 =====
-        # 当前speed命令 [num_envs, 3]
         self.commands = torch.zeros(num_envs, 3, device=device, dtype=torch.float32)
         
-        # 落地稳定计数器 [num_envs] 【放在CPU】
-        self.settle_counter = torch.zeros(num_envs, dtype=torch.long, device='cpu')
+        # 纯Python管理状态（避免任何张量索引问题）
+        self.buffer_read_idx = [0] * num_envs  # 缓冲读取位置
+        self.needs_inference = [True] * num_envs  # 是否需要推理
+        self.settle_counter = [0] * num_envs  # 落地稳定计数
+        self.is_initialized = [False] * num_envs  # 是否已初始化
         
-        # 环境是否已初始化 【放在CPU】
-        self.is_initialized = torch.zeros(num_envs, dtype=torch.bool, device='cpu')
-        
-        # ===== 监控 =====
         self.inference_count = 0
-        
-        cprint(f"[MotionLibCMGRealtime v2] 初始化完成", "green")
+        cprint(f"[MotionLibCMGRealtime v3] 初始化完成", "green")
     
     def _load_cmg_model(self, model_path: str, data_path: str):
-        """加载CMG模型"""
         from module.cmg import CMG
-        
         data = torch.load(data_path, weights_only=False)
         stats = data["stats"]
-        
         model = CMG(
             motion_dim=stats["motion_dim"],
             command_dim=stats["command_dim"],
@@ -134,38 +95,24 @@ class MotionLibCMGRealtime:
             num_experts=4,
             num_layers=3,
         )
-        
         checkpoint = torch.load(model_path, weights_only=False)
         if "model_state_dict" in checkpoint:
             model.load_state_dict(checkpoint["model_state_dict"])
         else:
             model.load_state_dict(checkpoint)
-        
         model = model.to(self.device)
         model.eval()
-        
-        cprint(f"[MotionLibCMGRealtime v2] CMG模型加载成功", "green")
+        cprint(f"[MotionLibCMGRealtime v3] CMG模型加载成功", "green")
         return model, stats
     
-    def _batch_inference(self, env_ids: torch.Tensor, init_states: torch.Tensor, 
-                        commands: torch.Tensor, num_frames: int) -> torch.Tensor:
-        """
-        批量推理指定环境的N帧动作
+    def _batch_inference(self, init_states: torch.Tensor, commands: torch.Tensor, 
+                        num_frames: int) -> torch.Tensor:
+        """批量推理（M个环境的N帧动作）"""
+        M = init_states.shape[0]
         
-        Args:
-            env_ids: 需要推理的环境ID [M]
-            init_states: 初始推理状态 [M, 58]
-            commands: 速度命令 [M, 3]
-            num_frames: 推理帧数
-        
-        Returns:
-            trajectory: [M, num_frames, 58]
-        """
-        M = len(env_ids)
-        
-        # 归一化输入
-        state_norm = (init_states - self.motion_mean) / self.motion_std  # [M, 58]
-        cmd_norm = (commands - self.cmd_min) / (self.cmd_max - self.cmd_min) * 2 - 1  # [M, 3]
+        # 归一化
+        state_norm = (init_states - self.motion_mean) / self.motion_std
+        cmd_norm = (commands - self.cmd_min) / (self.cmd_max - self.cmd_min) * 2 - 1
         
         # 自回归推理
         trajectory = []
@@ -173,45 +120,35 @@ class MotionLibCMGRealtime:
         
         with torch.no_grad():
             for _ in range(num_frames):
-                # CMG推理下一帧
-                next_state_norm = self.model(current_state, cmd_norm)  # [M, 58]
+                next_state_norm = self.model(current_state, cmd_norm)
                 trajectory.append(next_state_norm.clone())
                 current_state = next_state_norm
         
         # 反归一化 [M, num_frames, 58]
         trajectory = torch.stack(trajectory, dim=1)
         trajectory = trajectory * self.motion_std + self.motion_mean
-        
         return trajectory
     
-    def _infer_and_buffer(self, env_ids: torch.Tensor, current_dof_pos: torch.Tensor,
-                         commands: torch.Tensor):
-        """
-        为指定环境推理并填充缓冲
+    def _infer_and_buffer_batch(self, env_indices: List[int], 
+                               current_dof_pos: torch.Tensor,
+                               commands: torch.Tensor):
+        """为一批环境推理并填充缓冲"""
+        batch_size = len(env_indices)
         
-        Args:
-            env_ids: 环境ID [M]
-            current_dof_pos: 当前关节角度 [M, dof_dim]
-            commands: 速度命令 [M, 3]
-        """
-        M = len(env_ids)
-        
-        # 构建初始推理状态（当前dof_pos + 零速度或缓存速度）
-        init_states = torch.zeros(M, 58, device=self.device, dtype=torch.float32)
+        # 构建初始状态
+        init_states = torch.zeros(batch_size, 58, device=self.device, dtype=torch.float32)
         init_states[:, :self.dof_dim] = current_dof_pos
-        # dof_vel 部分保持为0（或可用缓存的最后速度）
         
-        # 批量推理2s的动作序列
-        trajectory = self._batch_inference(env_ids, init_states, commands, self.buffer_frames)
+        # 推理
+        trajectory = self._batch_inference(init_states, commands, self.buffer_frames)
         
-        # 填充缓冲
-        self.motion_buffer[env_ids] = trajectory
-        self.buffer_read_idx[env_ids] = 0
+        # 逐环境填充缓冲（纯Python操作）
+        for i, env_id in enumerate(env_indices):
+            self.motion_buffer[env_id] = trajectory[i]
+            self.buffer_read_idx[env_id] = 0
+            self.current_state[env_id] = trajectory[i, -1, :]
         
-        # 更新当前状态为推理的最后一帧
-        self.current_state[env_ids] = trajectory[:, -1, :]
-        
-        cprint(f"[推理] env_ids={env_ids.tolist()} 生成了{self.buffer_frames}帧", "cyan")
+        cprint(f"[推理] {batch_size} 个环境生成参考", "cyan")
         self.inference_count += 1
     
     # ===== MotionLib 兼容接口 =====
@@ -233,64 +170,63 @@ class MotionLibCMGRealtime:
     def sample_time(self, motion_ids: torch.Tensor) -> torch.Tensor:
         return torch.zeros(len(motion_ids), device=self.device, dtype=torch.float)
     
-    def calc_motion_frame(
-        self,
-        motion_ids: torch.Tensor,
-        motion_times: torch.Tensor,
-    ) -> Tuple[Optional[torch.Tensor], ...]:
-        """
-        获取参考动作帧
+    def calc_motion_frame(self, motion_ids: torch.Tensor, motion_times: torch.Tensor) -> Tuple:
+        """获取参考动作帧"""
+        N = motion_ids.shape[0]
         
-        Args:
-            motion_ids: [N] 环境ID
-            motion_times: [N] 时间（本版本中未使用，always从缓冲读取）
+        # 转为纯Python列表（避免张量操作）
+        try:
+            env_ids_list = motion_ids.cpu().tolist() if motion_ids.device.type == 'cuda' else motion_ids.tolist()
+        except:
+            env_ids_list = list(range(N))
         
-        Returns:
-            (root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos)
-        """
-        N = len(motion_ids)
-        env_ids = motion_ids
+        # 检查缓冲是否耗尽，收集需要推理的环境
+        envs_need_infer = []
+        for env_id in env_ids_list:
+            if self.needs_inference[env_id] or self.buffer_read_idx[env_id] >= self.buffer_frames:
+                envs_need_infer.append(env_id)
         
-        # 检查缓冲是否耗尽，需要重新推理
-        buffer_depleted = self.buffer_read_idx[env_ids] >= self.buffer_frames
-        needs_infer = self.needs_inference[env_ids] | buffer_depleted
-        
-        # 【同步批量推理】所有需要更新的环境在一起推理
-        if needs_infer.any():
-            infer_env_ids = env_ids[needs_infer]
-            
-            # 这里需要从环境侧获取当前关节角度
-            # 由于接口限制，暂时使用缓存的状态（dof_pos部分）
-            current_dof_pos = self.current_state[infer_env_ids, :self.dof_dim]
-            current_commands = self.commands[infer_env_ids]
-            
-            # 处理落地稳定期
-            settling_mask = self.settle_counter[infer_env_ids] > 0
-            settling_commands = current_commands.clone()
-            settling_commands[settling_mask] = 0.0
-            
-            # 执行推理
-            self._infer_and_buffer(infer_env_ids, current_dof_pos, settling_commands)
+        # 分批推理
+        if envs_need_infer:
+            num_batches = (len(envs_need_infer) + self.batch_size - 1) // self.batch_size
+            for batch_idx in range(num_batches):
+                start = batch_idx * self.batch_size
+                end = min(start + self.batch_size, len(envs_need_infer))
+                batch_env_ids = envs_need_infer[start:end]
+                
+                # 提取该批数据
+                batch_dof_pos = self.current_state[batch_env_ids, :self.dof_dim]
+                batch_commands = self.commands[batch_env_ids]
+                
+                # 处理落地稳定期
+                for i, env_id in enumerate(batch_env_ids):
+                    if self.settle_counter[env_id] > 0:
+                        batch_commands[i] = 0.0
+                
+                # 推理
+                self._infer_and_buffer_batch(batch_env_ids, batch_dof_pos, batch_commands)
             
             # 清除推理标志
-            self.needs_inference[infer_env_ids] = False
+            for env_id in envs_need_infer:
+                self.needs_inference[env_id] = False
         
         # 更新落地稳定计数
-        still_settling = self.settle_counter[env_ids] > 0
-        self.settle_counter[env_ids] = torch.clamp(self.settle_counter[env_ids] - 1, min=0)
+        for env_id in env_ids_list:
+            if self.settle_counter[env_id] > 0:
+                self.settle_counter[env_id] -= 1
         
         # 从缓冲读取动作
         dof_pos = torch.zeros(N, self.dof_dim, device=self.device, dtype=torch.float32)
         dof_vel = torch.zeros(N, self.dof_dim, device=self.device, dtype=torch.float32)
         
-        for i, env_id in enumerate(env_ids):
-            frame_idx = self.buffer_read_idx[env_id].item()
+        for i, env_id in enumerate(env_ids_list):
+            frame_idx = self.buffer_read_idx[env_id]
             motion_data = self.motion_buffer[env_id, frame_idx]
             dof_pos[i] = motion_data[:self.dof_dim]
             dof_vel[i] = motion_data[self.dof_dim:]
             
-            # 落地稳定期覆盖速度为0
-            if still_settling[i]:
+            # 落地稳定期速度为0
+            if self.settle_counter[env_id] > 0:
                 dof_vel[i] = 0.0
             
             # 推进缓冲指针
@@ -298,66 +234,59 @@ class MotionLibCMGRealtime:
         
         # 构建返回值
         root_vel = torch.zeros(N, 3, device=self.device, dtype=torch.float32)
-        root_vel[:, 0] = self.commands[env_ids, 0]
-        root_vel[:, 1] = self.commands[env_ids, 1]
-        
         root_ang_vel = torch.zeros(N, 3, device=self.device, dtype=torch.float32)
-        root_ang_vel[:, 2] = self.commands[env_ids, 2]
         
-        # 落地期间返回零速度
-        root_vel[still_settling] = 0.0
-        root_ang_vel[still_settling] = 0.0
+        for i, env_id in enumerate(env_ids_list):
+            if self.settle_counter[env_id] > 0:
+                # 落地期间零速度
+                root_vel[i] = 0.0
+                root_ang_vel[i] = 0.0
+            else:
+                root_vel[i, 0] = self.commands[env_id, 0]
+                root_vel[i, 1] = self.commands[env_id, 1]
+                root_ang_vel[i, 2] = self.commands[env_id, 2]
         
         return None, None, root_vel, root_ang_vel, dof_pos, dof_vel, None
     
     def reset_envs(self, env_ids: torch.Tensor, commands: Optional[torch.Tensor] = None,
                    init_dof_pos: Optional[torch.Tensor] = None):
-        """
-        重置指定环境
+        """重置指定环境"""
+        N = len(env_ids)
         
-        Args:
-            env_ids: 要重置的环境ID [N] （仅用于长度获取，不做GPU操作）
-            commands: 新命令 [N, 3]
-            init_dof_pos: 初始关节角度 [N, dof_dim]，用于推理初始状态
-        """
-        # 【关键】从参数推导N，避免任何env_ids的GPU操作
-        if commands is not None:
-            N = commands.shape[0]
-            commands = commands.contiguous()  # 确保连续
-        elif init_dof_pos is not None:
-            N = init_dof_pos.shape[0]
-            init_dof_pos = init_dof_pos.contiguous()  # 确保连续
-        else:
-            N = len(env_ids)
+        # 转为纯Python列表
+        try:
+            env_ids_list = env_ids.cpu().tolist() if env_ids.device.type == 'cuda' else env_ids.tolist()
+        except:
+            env_ids_list = list(range(N))
         
-        # 重置前N个环境（假设env_ids是连续的0~N-1）
-        for i in range(N):
-            # 更新命令
+        # 更新命令和状态
+        for i, env_id in enumerate(env_ids_list):
             if commands is not None:
-                self.commands[i] = commands[i]
+                self.commands[env_id] = commands[i]
             
-            # 设置初始推理状态
             if init_dof_pos is not None:
-                self.current_state[i, :self.dof_dim] = init_dof_pos[i]
+                self.current_state[env_id, :self.dof_dim] = init_dof_pos[i]
             
             # 标记需要推理
-            self.needs_inference[i] = True
-            self.settle_counter[i] = self.settle_frames
-            self.is_initialized[i] = True
+            self.needs_inference[env_id] = True
+            self.settle_counter[env_id] = self.settle_frames
+            self.is_initialized[env_id] = True
         
-        cprint(f"[Reset] 重置了 {N} 个环境，落地稳定 {self.SETTLE_TIME}s", "yellow")
+        cprint(f"[Reset] {N} 个环境，落地稳定 {self.SETTLE_TIME}s", "yellow")
     
     def update_commands(self, env_ids: torch.Tensor, commands: torch.Tensor):
-        """更新命令并触发重新推理"""
-        N = commands.shape[0]
+        """更新命令"""
+        N = len(env_ids)
+        try:
+            env_ids_list = env_ids.cpu().tolist() if env_ids.device.type == 'cuda' else env_ids.tolist()
+        except:
+            env_ids_list = list(range(N))
         
-        for i in range(N):
-            old_cmd = self.commands[i].clone()
-            self.commands[i] = commands[i]
-            
-            # 如果命令显著变化，需要重新推理
+        for i, env_id in enumerate(env_ids_list):
+            old_cmd = self.commands[env_id].clone()
+            self.commands[env_id] = commands[i]
             if torch.norm(commands[i] - old_cmd) > 0.01:
-                self.needs_inference[i] = True
+                self.needs_inference[env_id] = True
     
     def get_motion_command(self, motion_ids: torch.Tensor) -> torch.Tensor:
         return self.commands[motion_ids]
@@ -369,16 +298,12 @@ class MotionLibCMGRealtime:
         return []
     
     def get_performance_stats(self) -> Dict[str, float]:
-        return {
-            'inference_count': self.inference_count,
-            'buffer_frames': self.buffer_frames,
-        }
+        return {'inference_count': self.inference_count}
 
 
 def create_motion_lib_cmg_realtime(cfg, num_envs: int, device: str) -> MotionLibCMGRealtime:
     """工厂函数"""
     motion_cfg = cfg.motion
-    
     cmg_model_path = motion_cfg.cmg_model_path
     cmg_data_path = motion_cfg.cmg_data_path
     dof_dim = getattr(motion_cfg, 'dof_dim', 29)
