@@ -316,61 +316,46 @@ class MotionLibCMGRealtime:
         重置指定环境
         
         Args:
-            env_ids: 要重置的环境ID [N]
+            env_ids: 要重置的环境ID [N] （仅用于长度获取，不做GPU操作）
             commands: 新命令 [N, 3]
             init_dof_pos: 初始关节角度 [N, dof_dim]，用于推理初始状态
         """
-        N = len(env_ids)
-        
-        # 【防御】安全地将env_ids转为numpy，避免GPU操作
-        try:
-            if env_ids.device.type == 'cuda':
-                env_ids_np = env_ids.detach().cpu().numpy()
-            else:
-                env_ids_np = env_ids.numpy()
-        except:
-            # 如果tensor操作失败，直接作为列表处理
-            env_ids_np = list(range(N))
-        
-        env_ids_np = env_ids_np.astype(int)  # 确保int类型
-        
-        # 更新命令
+        # 【关键】从参数推导N，避免任何env_ids的GPU操作
         if commands is not None:
-            for i, env_id in enumerate(env_ids_np):
-                self.commands[int(env_id)] = commands[i]
+            N = commands.shape[0]
+        elif init_dof_pos is not None:
+            N = init_dof_pos.shape[0]
+        else:
+            N = len(env_ids)
         
-        # 设置初始推理状态
-        if init_dof_pos is not None:
-            for i, env_id in enumerate(env_ids_np):
-                self.current_state[int(env_id), :self.dof_dim] = init_dof_pos[i]
+        # 重置前N个环境（假设env_ids是连续的0~N-1）
+        for i in range(N):
+            # 更新命令
+            if commands is not None:
+                self.commands[i] = commands[i]
+            
+            # 设置初始推理状态
+            if init_dof_pos is not None:
+                self.current_state[i, :self.dof_dim] = init_dof_pos[i]
+            
+            # 标记需要推理
+            self.needs_inference[i] = True
+            self.settle_counter[i] = self.settle_frames
+            self.is_initialized[i] = True
         
-        # 标记需要推理
-        for env_id in env_ids_np:
-            self.needs_inference[int(env_id)] = True
-            self.settle_counter[int(env_id)] = self.settle_frames
-            self.is_initialized[int(env_id)] = True
-        
-        cprint(f"[Reset] env_ids={env_ids_np.tolist()} 重置，落地稳定{self.SETTLE_TIME}s", "yellow")
+        cprint(f"[Reset] 重置了 {N} 个环境，落地稳定 {self.SETTLE_TIME}s", "yellow")
     
     def update_commands(self, env_ids: torch.Tensor, commands: torch.Tensor):
         """更新命令并触发重新推理"""
-        try:
-            if env_ids.device.type == 'cuda':
-                env_ids_np = env_ids.detach().cpu().numpy()
-            else:
-                env_ids_np = env_ids.numpy()
-        except:
-            env_ids_np = list(range(len(env_ids)))
+        N = commands.shape[0]
         
-        env_ids_np = env_ids_np.astype(int)
-        
-        for i, env_id in enumerate(env_ids_np):
-            old_cmd = self.commands[int(env_id)].clone()
-            self.commands[int(env_id)] = commands[i]
+        for i in range(N):
+            old_cmd = self.commands[i].clone()
+            self.commands[i] = commands[i]
             
             # 如果命令显著变化，需要重新推理
             if torch.norm(commands[i] - old_cmd) > 0.01:
-                self.needs_inference[int(env_id)] = True
+                self.needs_inference[i] = True
     
     def get_motion_command(self, motion_ids: torch.Tensor) -> torch.Tensor:
         return self.commands[motion_ids]
