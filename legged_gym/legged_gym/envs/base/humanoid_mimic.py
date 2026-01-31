@@ -373,10 +373,34 @@ class HumanoidMimic(HumanoidChar):
             
     def check_termination(self):
         # 接触力终止：躯干等部位碰到地面/障碍物（> 1N 即触发）
-        contact_force_termination = torch.any(
-            torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., 
-            dim=1
-        )
+        # 注意：只在接触力异常大时才终止（正常站立时躯干不应该有接触）
+        torso_contact_forces = self.contact_forces[:, self.termination_contact_indices, :]
+        torso_contact_norms = torch.norm(torso_contact_forces, dim=-1)  # (num_envs, num_contact_bodies)
+        
+        # 调试：第一次运行时打印索引信息
+        if not hasattr(self, '_debug_contact_printed'):
+            self._debug_contact_printed = True
+            print(f"[DEBUG] termination_contact_indices: {self.termination_contact_indices}")
+            print(f"[DEBUG] contact_forces shape: {self.contact_forces.shape}")
+            print(f"[DEBUG] torso_contact_norms shape: {torso_contact_norms.shape}")
+            print(f"[DEBUG] torso_contact_norms (first 5 envs): {torso_contact_norms[:5]}")
+            print(f"[DEBUG] torso_contact_forces (env0): {torso_contact_forces[0]}")
+            # 打印所有 body 的 contact force norm 来检查
+            all_contact_norms = torch.norm(self.contact_forces[0], dim=-1)
+            print(f"[DEBUG] all contact norms (env0, all bodies): {all_contact_norms}")
+        
+        # 周期性打印统计（每1000步）
+        if hasattr(self, '_debug_step_counter'):
+            self._debug_step_counter += 1
+        else:
+            self._debug_step_counter = 0
+        if self._debug_step_counter % 1000 == 0:
+            contact_rate = (torso_contact_norms > 1.).float().mean().item()
+            mean_norm = torso_contact_norms.mean().item()
+            max_norm = torso_contact_norms.max().item()
+            print(f"[DEBUG step {self._debug_step_counter}] torso contact: rate={contact_rate:.3f}, mean_norm={mean_norm:.2f}, max_norm={max_norm:.2f}")
+        
+        contact_force_termination = torch.any(torso_contact_norms > 1., dim=1)
         self.reset_buf = contact_force_termination
         
         # 高度检查：CMG模式使用绝对高度，mocap模式使用相对高度
@@ -418,13 +442,24 @@ class HumanoidMimic(HumanoidChar):
         else:
             dof_tracking_terminate = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         
-        # 统计终止原因（用于日志）
-        self._termination_contact = contact_force_termination
-        self._termination_height = height_cutoff
-        self._termination_roll = roll_cut
-        self._termination_pitch = pitch_cut
-        self._termination_dof_tracking = dof_tracking_terminate
-        self._termination_motion_end = motion_end
+        # 统计终止原因（用于日志）- 互斥统计，只记录首先触发的原因
+        # 优先级：contact > height > roll > pitch > dof_tracking > motion_end
+        self._termination_contact = contact_force_termination.clone()
+        remaining = ~contact_force_termination
+        
+        self._termination_height = height_cutoff & remaining
+        remaining = remaining & ~height_cutoff
+        
+        self._termination_roll = roll_cut & remaining
+        remaining = remaining & ~roll_cut
+        
+        self._termination_pitch = pitch_cut & remaining
+        remaining = remaining & ~pitch_cut
+        
+        self._termination_dof_tracking = dof_tracking_terminate & remaining
+        remaining = remaining & ~dof_tracking_terminate
+        
+        self._termination_motion_end = motion_end & remaining
         
         # 调试输出：打印哪个条件触发了reset（仅在有viewer时）
         if self.viewer is not None and self.reset_buf.any():

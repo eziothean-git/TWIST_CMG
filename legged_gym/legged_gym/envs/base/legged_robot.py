@@ -925,6 +925,11 @@ class LeggedRobot(BaseTask):
         self.termination_contact_indices = torch.zeros(len(termination_contact_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(termination_contact_names)):
             self.termination_contact_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], termination_contact_names[i])
+        
+        # 打印接触检测配置
+        print(f"[Contact Config] terminate_after_contacts_on: {self.cfg.asset.terminate_after_contacts_on}")
+        print(f"[Contact Config] termination_contact_names: {termination_contact_names}")
+        print(f"[Contact Config] termination_contact_indices: {self.termination_contact_indices}")
     
     def _get_body_indices(self):
         """ Store indices of different bodies of the robot
