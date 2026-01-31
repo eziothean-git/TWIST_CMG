@@ -68,7 +68,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         horizontal_scale = 0.1
     
     class init_state(HumanoidMimicCfg.init_state):
-        pos = [0, 0, 1.0]
+        pos = [0, 0, 0.78]  # G1站立高度约0.75m，出生高度略高于地面
         default_joint_angles = {
             'left_hip_pitch_joint': -0.2,
             'left_hip_roll_joint': 0.0,
