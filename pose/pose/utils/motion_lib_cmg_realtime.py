@@ -93,11 +93,11 @@ class MotionLibCMGRealtime:
             cmg_model_path, cmg_data_path
         )
         
-        # 提取统计信息
-        self.motion_mean = torch.from_numpy(self.stats["motion_mean"]).to(device)
-        self.motion_std = torch.from_numpy(self.stats["motion_std"]).to(device)
-        self.cmd_min = torch.from_numpy(self.stats["command_min"]).to(device)
-        self.cmd_max = torch.from_numpy(self.stats["command_max"]).to(device)
+        # 提取统计信息（确保数组是C连续的）
+        self.motion_mean = torch.from_numpy(np.ascontiguousarray(self.stats["motion_mean"])).to(device)
+        self.motion_std = torch.from_numpy(np.ascontiguousarray(self.stats["motion_std"])).to(device)
+        self.cmd_min = torch.from_numpy(np.ascontiguousarray(self.stats["command_min"])).to(device)
+        self.cmd_max = torch.from_numpy(np.ascontiguousarray(self.stats["command_max"])).to(device)
         
         # 【状态缓冲区】
         # current_motion: 当前 CMG 状态 [num_envs, 58]
