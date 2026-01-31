@@ -420,12 +420,9 @@ class HumanoidMimic(HumanoidChar):
             
     def check_termination(self):
         # 采用 Yanjie_branch_2 版本的终结条件设计
-        # 注意：contact_force_termination 在某些模型配置下会误报（torso_link 自碰撞）
-        # 如果 termination/contact_force 占比过高，考虑禁用或提高阈值
+        # 现在使用简化碰撞体（cylinder/sphere）而非mesh，碰撞检测稳定，接触力终结可恢复
         contact_force_termination = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
-        # 临时禁用接触力终结以排查问题，确认后可恢复
-        # self.reset_buf = contact_force_termination
-        self.reset_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self.reset_buf = contact_force_termination
         
         # 高度检查：
         # - Mocap模式（有body_pos参考）：使用相对高度
