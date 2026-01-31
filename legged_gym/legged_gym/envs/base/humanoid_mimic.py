@@ -376,8 +376,9 @@ class HumanoidMimic(HumanoidChar):
         if "episode" in self.extras:
             del self.extras["episode"]
         
-        # 接触力终止：躯干等部位碰到地面/障碍物（> 1N 即触发）
-        # 注意：只在接触力异常大时才终止（正常站立时躯干不应该有接触）
+        # 接触力终止：躯干等部位碰到地面/障碍物
+        # TODO: 暂时禁用，因为 torso 接触力总是 > 1N，需要调查原因
+        # 可能是因为：1) 索引错误 2) 物理引擎噪音 3) 碰撞体积设置问题
         torso_contact_forces = self.contact_forces[:, self.termination_contact_indices, :]
         torso_contact_norms = torch.norm(torso_contact_forces, dim=-1)  # (num_envs, num_contact_bodies)
         
@@ -393,18 +394,8 @@ class HumanoidMimic(HumanoidChar):
             all_contact_norms = torch.norm(self.contact_forces[0], dim=-1)
             print(f"[DEBUG] all contact norms (env0, all bodies): {all_contact_norms}")
         
-        # 周期性打印统计（每1000步）
-        if hasattr(self, '_debug_step_counter'):
-            self._debug_step_counter += 1
-        else:
-            self._debug_step_counter = 0
-        if self._debug_step_counter % 1000 == 0:
-            contact_rate = (torso_contact_norms > 1.).float().mean().item()
-            mean_norm = torso_contact_norms.mean().item()
-            max_norm = torso_contact_norms.max().item()
-            print(f"[DEBUG step {self._debug_step_counter}] torso contact: rate={contact_rate:.3f}, mean_norm={mean_norm:.2f}, max_norm={max_norm:.2f}")
-        
-        contact_force_termination = torch.any(torso_contact_norms > 1., dim=1)
+        # 暂时禁用 contact force termination，改用更高的阈值（100N = 明显撞击）
+        contact_force_termination = torch.any(torso_contact_norms > 100., dim=1)
         self.reset_buf = contact_force_termination
         
         # 高度检查：CMG模式使用绝对高度，mocap模式使用相对高度
