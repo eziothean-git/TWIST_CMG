@@ -400,6 +400,21 @@ class G1MimicDistill(HumanoidMimic):
             proprio_obs_buf,
             priv_info,
         ), dim=-1)
+
+        if self.common_step_counter < 5:
+            obs_mean = obs_buf.mean().item()
+            obs_std = obs_buf.std().item()
+            priv_mean = priv_obs_buf.mean().item()
+            priv_std = priv_obs_buf.std().item()
+            obs_min = obs_buf.min().item()
+            obs_max = obs_buf.max().item()
+            priv_min = priv_obs_buf.min().item()
+            priv_max = priv_obs_buf.max().item()
+            print(
+                f"[DEBUG OBS] step={self.common_step_counter} "
+                f"obs(mean={obs_mean:.4f}, std={obs_std:.4f}, min={obs_min:.4f}, max={obs_max:.4f}) "
+                f"priv(mean={priv_mean:.4f}, std={priv_std:.4f}, min={priv_min:.4f}, max={priv_max:.4f})"
+            )
         
         self.privileged_obs_buf = priv_obs_buf
         
