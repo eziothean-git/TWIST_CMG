@@ -358,14 +358,18 @@ class HumanoidMimic(HumanoidChar):
             self._push_end_effector()
     
     def _update_curriculum_level(self):
-        """基于训练步数更新curriculum_level，控制命令范围"""
-        # common_step_counter 是仿真步数
-        # 使用固定值24（默认num_steps_per_env）来估算迭代数
-        num_steps_per_env = 24
-        estimated_iters = self.common_step_counter / num_steps_per_env
-        
-        # curriculum_level 从0线性增长到1
-        self.curriculum_level = min(1.0, estimated_iters / self.curriculum_max_iters)
+        """基于训练进度（完成率）更新curriculum_level，控制命令范围"""
+        # curriculum_level 基于 mean_motion_difficulty 来调整
+        # motion_difficulty 范围 1~9，其中 1=差(0%完成率)，9=好(100%完成率)
+        # 
+        # 设计逻辑：
+        # - difficulty < 3: 训练还很差，保持低难度命令 (curriculum_level 低)
+        # - difficulty 3~7: 逐步提升命令范围
+        # - difficulty > 7: 训练效果好，使用全范围命令 (curriculum_level → 1)
+        #
+        # 映射: difficulty 3~7 → curriculum_level 0~1
+        difficulty = self.mean_motion_difficulty
+        self.curriculum_level = min(1.0, max(0.0, (difficulty - 3.0) / 4.0))
             
     def check_termination(self):
         contact_force_termination = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
