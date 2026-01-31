@@ -405,6 +405,17 @@ class HumanoidMimic(HumanoidChar):
         self._update_ref_motion()
         # self._hard_sync_motion_loop()
         
+        # 【调试】前几步打印关键参考值
+        if self.common_step_counter < 3:
+            cprint(f"\n[DEBUG Step {self.common_step_counter}] 参考动作检查:", "yellow")
+            cprint(f"  _ref_dof_pos[0, :6]: {self._ref_dof_pos[0, :6].tolist()}", "cyan")
+            cprint(f"  dof_pos[0, :6]:      {self.dof_pos[0, :6].tolist()}", "cyan")
+            cprint(f"  _ref_dof_vel[0, :6]: {self._ref_dof_vel[0, :6].tolist()}", "cyan")
+            cprint(f"  commands[0]:         {self.commands[0].tolist()}", "cyan")
+            # 检查是否全零
+            if torch.allclose(self._ref_dof_pos, torch.zeros_like(self._ref_dof_pos), atol=1e-6):
+                cprint(f"  [ERROR] _ref_dof_pos 全为零！", "red")
+        
         # 更新curriculum_level（基于训练步数）
         self._update_curriculum_level()
 
@@ -544,6 +555,18 @@ class HumanoidMimic(HumanoidChar):
         motion_ids_tiled = motion_ids_tiled.flatten()
         obs_motion_times = obs_motion_times.flatten()
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids_tiled, obs_motion_times)
+        
+        N = motion_ids_tiled.shape[0]  # num_envs * num_steps
+        
+        # 【关键修复】CMG模式下 root_pos, root_rot 为 None，需要提供默认值
+        if root_pos is None:
+            # CMG模式：使用零值作为相对位置（因为CMG不提供绝对root轨迹）
+            root_pos = torch.zeros(N, 3, device=self.device)
+        if root_rot is None:
+            # CMG模式：使用单位四元数（假设机器人保持直立朝向）
+            root_rot = torch.zeros(N, 4, device=self.device)
+            root_rot[:, 3] = 1.0  # w=1 单位四元数 (x,y,z,w) format
+        
         roll, pitch, _ = euler_from_quaternion(root_rot)
         roll = roll.reshape(self.num_envs, num_steps, 1)
         pitch = pitch.reshape(self.num_envs, num_steps, 1)

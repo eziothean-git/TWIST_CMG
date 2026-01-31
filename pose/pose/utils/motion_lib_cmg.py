@@ -218,6 +218,11 @@ class MotionLibCMG:
         cprint(f"  - 动作池形状: {self.motion_pool.shape}", "green")
         cprint(f"  - dof_pos范围: [{self.dof_pos_pool.min():.3f}, {self.dof_pos_pool.max():.3f}]", "green")
         cprint(f"  - dof_vel范围: [{self.dof_vel_pool.min():.3f}, {self.dof_vel_pool.max():.3f}]", "green")
+        
+        # 【调试】打印第一条轨迹的前几帧数据
+        cprint(f"  - 第一条轨迹 dof_pos[0, 0, :6]: {self.dof_pos_pool[0, 0, :6].tolist()}", "yellow")
+        cprint(f"  - 第一条轨迹 dof_pos[0, 10, :6]: {self.dof_pos_pool[0, 10, :6].tolist()}", "yellow")
+        cprint(f"  - velocity command[0]: {self.motion_commands[0].tolist()}", "yellow")
     
     def _sample_diverse_commands(self, n: int) -> torch.Tensor:
         """
