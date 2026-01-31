@@ -217,7 +217,10 @@ class MotionLibCMGRealtime:
         
         # 遍历所有样本找速度最小的帧
         for sample in self.samples[:min(100, len(self.samples))]:  # 最多检查100个样本
-            motion_seq = sample["motion"]  # [T, 58]
+            motion_seq = sample["motion"]  # [T, motion_dim]
+            # 确保使用CPU上的numpy数组，避免GPU索引错误
+            if isinstance(motion_seq, torch.Tensor):
+                motion_seq = motion_seq.detach().cpu().numpy()
             # 检查前几帧（通常更接近静止）
             for t in range(min(10, len(motion_seq))):
                 pose = motion_seq[t]
@@ -230,6 +233,17 @@ class MotionLibCMGRealtime:
             # Fallback：使用第一个样本的第一帧
             best_pose = self.samples[0]["motion"][0].copy()
         
+        # 形状防御：期望长度=2*dof_dim
+        expected_dim = self.dof_dim * 2
+        best_pose = np.asarray(best_pose).reshape(-1)
+        if best_pose.shape[0] != expected_dim:
+            cprint(f"[MotionLibCMGRealtime] WARNING: 站立姿态维度={best_pose.shape[0]} 与期望 {expected_dim} 不一致，自动截断/填充", "red")
+            if best_pose.shape[0] > expected_dim:
+                best_pose = best_pose[:expected_dim]
+            else:
+                pad = np.zeros(expected_dim - best_pose.shape[0], dtype=best_pose.dtype)
+                best_pose = np.concatenate([best_pose, pad], axis=0)
+
         cprint(f"[MotionLibCMGRealtime] 选择站立姿态，速度和={min_vel:.4f}", "cyan")
         # 确保numpy数组是C连续的，然后转换到GPU
         best_pose = np.ascontiguousarray(best_pose)
