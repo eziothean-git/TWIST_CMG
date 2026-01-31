@@ -43,8 +43,12 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         enable_early_termination = True
         pose_termination = True
         pose_termination_dist = 0.7
-        rand_reset = True
+        rand_reset = False  # 从t=0开始采样，不随机
         track_root = False
+        
+        # 速度奖励渐进系数：当tracking_joint_dof reward达到阈值后才启用速度奖励
+        velocity_reward_threshold = 0.6  # tracking reward达到此值后开始启用速度奖励
+        velocity_reward_scale = 0.0  # 初始为0，训练中根据tracking表现动态调整
      
         dof_err_w = [1.0, 0.8, 0.8, 1.0, 0.5, 0.5, # Left Leg (6)
                      1.0, 0.8, 0.8, 1.0, 0.5, 0.5, # Right Leg (6)
@@ -211,17 +215,17 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         regularization_scale_curriculum = False
         regularization_scale_gamma = 0.0001
         class scales:
-            # ========== 跟踪奖励配置 ==========
-            # tracking : motion = 7 : 3
-            # 关节跟踪 : 速度跟踪 = 6 : 4
+            # ========== 跟踪奖励配置 (参考Yanjie原版) ==========
+            # 初期100%为tracking，后期根据tracking表现渐进启用速度奖励
             
-            # -- 关节跟踪 (60% of tracking, 42% of total) --
-            tracking_joint_dof = 0.84     # CMG提供dof_pos ✓ (增强)
-            tracking_joint_vel = 0.28     # CMG提供dof_vel ✓ (增强)
+            # -- 关节跟踪 (主要奖励，与Yanjie一致) --
+            tracking_joint_dof = 1.5      # Yanjie原版: 1.5
+            tracking_joint_vel = 0.5      # Yanjie原版: 0.5
             
-            # -- 速度命令跟踪 (40% of tracking, 28% of total) --
-            tracking_lin_vel = 0.49       # 线速度跟踪 (vx, vy) (增强)
-            tracking_ang_vel = 0.25       # 角速度跟踪 (yaw) (增强)
+            # -- 速度命令跟踪 (初期为0，通过velocity_reward_scale渐进控制) --
+            # 基准值与Yanjie一致，实际值 = 基准值 × velocity_reward_scale
+            tracking_lin_vel = 0.5        # Yanjie原版: 0.5 (tracking_root_vel)
+            tracking_ang_vel = 0.25       # 角速度跟踪
             
             # ========== CMG不支持的奖励（已禁用）==========
             # tracking_root_pose = 0.6    # CMG不提供root位置参考

@@ -270,11 +270,23 @@ class LeggedRobot(BaseTask):
             adds each terms to the episode sums and to the total reward
         """
         self.rew_buf[:] = 0.
+        
+        # 【调试】记录每个 reward 分量（仅第一个环境）
+        if self.common_step_counter < 5:
+            from termcolor import cprint
+            cprint(f"\n[DEBUG Step {self.common_step_counter}] Reward 分解:", "magenta")
+        
         for i in range(len(self.reward_functions)):
             name = self.reward_names[i]
             rew = self.reward_functions[i]() * self.reward_scales[name]
             self.rew_buf += rew
             self.episode_sums[name] += rew
+            
+            # 【调试】打印第一个环境的 reward 值
+            if self.common_step_counter < 5:
+                from termcolor import cprint
+                cprint(f"  {name:30s}: {rew[0]:.6f} (×{self.reward_scales[name]:.4f})", "magenta")
+        
         if self.cfg.rewards.only_positive_rewards:
             self.rew_buf[:] = torch.clip(self.rew_buf[:], min=0.)
         
@@ -283,6 +295,15 @@ class LeggedRobot(BaseTask):
             rew = self._reward_termination() * self.reward_scales["termination"]
             self.rew_buf += rew
             self.episode_sums["termination"] += rew
+            
+            if self.common_step_counter < 5:
+                from termcolor import cprint
+                cprint(f"  {'termination':30s}: {rew[0]:.6f} (×{self.reward_scales['termination']:.4f})", "magenta")
+        
+        # 【调试】总 reward
+        if self.common_step_counter < 5:
+            from termcolor import cprint
+            cprint(f"  {'TOTAL':30s}: {self.rew_buf[0]:.6f}", "magenta")
     
     def compute_observations(self):
         """ 

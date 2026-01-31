@@ -49,6 +49,15 @@ class HumanoidMimic(HumanoidChar):
         self.motion_names = self._motion_lib.get_motion_names()
         self.deviate_tracking_frames = torch.zeros((self.num_envs), device=self.device, dtype=torch.float)
         self.deviate_vel_tracking_frames = torch.zeros((self.num_envs), device=self.device, dtype=torch.float)
+        
+        # 【速度奖励渐进系统】
+        # 初期100%为tracking reward，当tracking达到阈值后逐步启用速度奖励
+        self.velocity_reward_threshold = getattr(cfg.env, 'velocity_reward_threshold', 0.6)
+        self.velocity_reward_scale = getattr(cfg.env, 'velocity_reward_scale', 0.0)
+        self.mean_tracking_reward = 0.0  # 跟踪tracking_joint_dof的平均值
+        self._tracking_reward_history = []  # 用于计算滑动平均
+        cprint(f"[HumanoidMimic] 速度奖励渐进系统: threshold={self.velocity_reward_threshold}, initial_scale={self.velocity_reward_scale}", "green")
+        
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
     
     def _get_max_motion_len(self):
@@ -157,6 +166,14 @@ class HumanoidMimic(HumanoidChar):
         self._motion_time_offsets[env_ids] = motion_times
         
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
+        
+        # 【调试】记录重置时的参考值
+        if self.common_step_counter == 0:
+            cprint(f"\n[DEBUG RESET] 重置环境参考值:", "green")
+            cprint(f"  motion_times[0]: {motion_times[0]:.4f}s", "green")
+            cprint(f"  _motion_time_offsets[env_ids[0]]: {self._motion_time_offsets[env_ids[0]]:.4f}s", "green")
+            cprint(f"  dof_pos@reset[env_ids[0], :6]: {dof_pos[0, :6].tolist()}", "green")
+            cprint(f"  dof_vel@reset[env_ids[0], :6]: {dof_vel[0, :6].tolist()}", "green")
         
         # 调试打印：确认CMG返回的维度
         if dof_pos.shape[-1] != self._ref_dof_pos.shape[-1]:
@@ -411,25 +428,63 @@ class HumanoidMimic(HumanoidChar):
         self._update_ref_motion()
         # self._hard_sync_motion_loop()
         
-        # 【调试】前几步打印关键参考值
-        if self.common_step_counter < 3:
+        # 【调试】前5步打印关键参考值和 reward
+        if self.common_step_counter < 5:
             cprint(f"\n[DEBUG Step {self.common_step_counter}] 参考动作检查:", "yellow")
+            cprint(f"  motion_time: {(self.episode_length_buf[0] * self.dt + self._motion_time_offsets[0]):.4f}s", "yellow")
             cprint(f"  _ref_dof_pos[0, :6]: {self._ref_dof_pos[0, :6].tolist()}", "cyan")
             cprint(f"  dof_pos[0, :6]:      {self.dof_pos[0, :6].tolist()}", "cyan")
+            dof_diff = self._ref_dof_pos[0, :6] - self.dof_pos[0, :6]
+            cprint(f"  差异[0, :6]:          {dof_diff.tolist()} (L2={torch.sqrt(torch.sum(dof_diff**2)):.4f})", "cyan")
             cprint(f"  _ref_dof_vel[0, :6]: {self._ref_dof_vel[0, :6].tolist()}", "cyan")
+            cprint(f"  dof_vel[0, :6]:      {self.dof_vel[0, :6].tolist()}", "cyan")
             cprint(f"  commands[0]:         {self.commands[0].tolist()}", "cyan")
+            cprint(f"  actions[0]:          {self.actions[0].tolist()}", "cyan")
             # 检查是否全零
             if torch.allclose(self._ref_dof_pos, torch.zeros_like(self._ref_dof_pos), atol=1e-6):
                 cprint(f"  [ERROR] _ref_dof_pos 全为零！", "red")
         
         # 更新curriculum_level（基于训练步数）
         self._update_curriculum_level()
+        
+        # 【速度奖励渐进更新】
+        self._update_velocity_reward_scale()
 
         if self.cfg.domain_rand.push_robots and  (self.common_step_counter % self.cfg.domain_rand.push_interval == 0):
             self._push_robots()
         
         if self.cfg.domain_rand.push_end_effector and (self.common_step_counter % self.cfg.domain_rand.push_end_effector_interval == 0):
             self._push_end_effector()
+    
+    def _update_velocity_reward_scale(self):
+        """
+        根据tracking_joint_dof的表现渐进启用速度奖励
+        
+        设计逻辑：
+        - 初期 velocity_reward_scale = 0，100%为tracking reward
+        - 当 mean_tracking_reward >= threshold 时，开始渐进启用
+        - velocity_reward_scale 在 1000 步内从 0 增长到 1.0
+        """
+        # 计算当前的 tracking_joint_dof reward
+        current_tracking_reward = self._reward_tracking_joint_dof().mean().item()
+        
+        # 维护滑动平均（最近100步）
+        self._tracking_reward_history.append(current_tracking_reward)
+        if len(self._tracking_reward_history) > 100:
+            self._tracking_reward_history.pop(0)
+        self.mean_tracking_reward = sum(self._tracking_reward_history) / len(self._tracking_reward_history)
+        
+        # 更新 velocity_reward_scale
+        if self.mean_tracking_reward >= self.velocity_reward_threshold:
+            # 达到阈值后，每步增加 0.001，1000步内从0到1
+            self.velocity_reward_scale = min(1.0, self.velocity_reward_scale + 0.001)
+        
+        # 每1000步打印一次状态
+        if self.common_step_counter % 1000 == 0:
+            cprint(f"[VelocityReward] step={self.common_step_counter}, "
+                   f"mean_tracking={self.mean_tracking_reward:.4f}, "
+                   f"threshold={self.velocity_reward_threshold}, "
+                   f"velocity_scale={self.velocity_reward_scale:.4f}", "blue")
     
     def _update_curriculum_level(self):
         """基于训练进度（完成率）更新curriculum_level，控制命令范围"""
