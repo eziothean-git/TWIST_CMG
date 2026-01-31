@@ -463,29 +463,42 @@ class MotionLibCMGRealtime:
         n = len(env_ids)
         
         # 重新采样初始姿态（用于 CMG 自回归的起点）
-        init_motions = self._sample_initial_poses(n)
-        self.current_motion[env_ids] = init_motions
+        init_motions = self._sample_initial_poses(n)  # [n, 58]
+        
+        # 【关键修复】使用显式循环避免GPU高阶索引错误
+        # 问题：self.current_motion[env_ids] = init_motions 会触发CUDA device-side assert
+        # 原因：env_ids可能非连续或为0-based转后的非标准排列，导致GPU索引出界
+        env_ids_cpu = env_ids.cpu().numpy() if isinstance(env_ids, torch.Tensor) else env_ids
+        for i, env_id in enumerate(env_ids_cpu):
+            self.current_motion[int(env_id)] = init_motions[i]
         
         # 设置落地稳定期的参考姿态
         if init_dof_pos is not None:
             # 使用仿真器的初始关节角度
-            self.settle_dof_pos[env_ids] = init_dof_pos
+            for i, env_id in enumerate(env_ids_cpu):
+                self.settle_dof_pos[int(env_id)] = init_dof_pos[i]
         else:
             # 使用 CMG 初始姿态的 dof_pos 部分
-            self.settle_dof_pos[env_ids] = init_motions[:, :self.dof_dim]
+            for i, env_id in enumerate(env_ids_cpu):
+                self.settle_dof_pos[int(env_id)] = init_motions[i, :self.dof_dim]
         
         # 重置缓冲区
-        self.buffer_idx[env_ids] = self.buffer_frames  # 标记为需要重新生成
+        for env_id in env_ids_cpu:
+            self.buffer_idx[int(env_id)] = self.buffer_frames  # 标记为需要重新生成
         
         # 重置落地稳定计数器
-        self.settle_counter[env_ids] = self.settle_frames
+        for env_id in env_ids_cpu:
+            self.settle_counter[int(env_id)] = self.settle_frames
         
         # 更新命令
         if commands is not None:
-            self.commands[env_ids] = commands
+            for i, env_id in enumerate(env_ids_cpu):
+                self.commands[int(env_id)] = commands[i]
         else:
             # 采样新命令
-            self.commands[env_ids] = self._sample_commands(n)
+            sampled_cmds = self._sample_commands(n)
+            for i, env_id in enumerate(env_ids_cpu):
+                self.commands[int(env_id)] = sampled_cmds[i]
     
     def _sample_commands(self, n: int, curriculum_level: float = 0.0) -> torch.Tensor:
         """
