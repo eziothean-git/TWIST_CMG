@@ -148,9 +148,20 @@ class MotionLibCMGRealtime:
         init_states = torch.zeros(batch_size, 58, device=self.device, dtype=torch.float32)
         init_states[:, :self.dof_dim] = current_dof_pos
         
+        # 同步检查
+        if self.device != 'cpu':
+            torch.cuda.synchronize(self.device)
+            cprint(f"  init_states created, GPU同步完成", "magenta")
+        
         # 推理
         trajectory = self._batch_inference(init_states, commands, self.buffer_frames)
         cprint(f"  trajectory shape: {trajectory.shape}", "magenta")
+        
+        # 同步检查
+        if self.device != 'cpu':
+            torch.cuda.synchronize(self.device)
+            cprint(f"  推理完成，GPU同步完成", "magenta")
+        
         cprint(f"  motion_buffer shape: {self.motion_buffer.shape}", "magenta")
         
         # 批量填充缓冲（先在CPU创建索引）
@@ -162,8 +173,21 @@ class MotionLibCMGRealtime:
         
         try:
             self.motion_buffer[env_indices_tensor] = trajectory
+            cprint(f"  motion_buffer写入成功", "green")
+            
+            # 同步检查
+            if self.device != 'cpu':
+                torch.cuda.synchronize(self.device)
+                cprint(f"  motion_buffer写入后GPU同步完成", "green")
+            
             self.current_state[env_indices_tensor] = trajectory[:, -1, :]
-            cprint(f"  缓冲填充成功", "green")
+            cprint(f"  current_state写入成功", "green")
+            
+            # 同步检查
+            if self.device != 'cpu':
+                torch.cuda.synchronize(self.device)
+                cprint(f"  current_state写入后GPU同步完成", "green")
+                
         except Exception as e:
             cprint(f"  [ERROR] 缓冲填充失败: {e}", "red")
             cprint(f"    motion_buffer requires shape: [{len(env_indices_tensor)}, {self.buffer_frames}, 58]", "red")
