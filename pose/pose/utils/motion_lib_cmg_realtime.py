@@ -244,6 +244,15 @@ class MotionLibCMGRealtime:
                 pad = np.zeros(expected_dim - best_pose.shape[0], dtype=best_pose.dtype)
                 best_pose = np.concatenate([best_pose, pad], axis=0)
 
+        # 数值防御：检查是否存在nan/inf，若有则替换为0并报错提示
+        if not np.isfinite(best_pose).all():
+            bad_mask = ~np.isfinite(best_pose)
+            cprint(
+                f"[MotionLibCMGRealtime] ERROR: 站立姿态包含无效数值，替换为0。坏值数量={bad_mask.sum()}", 
+                "red"
+            )
+            best_pose = np.nan_to_num(best_pose, nan=0.0, posinf=0.0, neginf=0.0)
+
         cprint(f"[MotionLibCMGRealtime] 选择站立姿态，速度和={min_vel:.4f}", "cyan")
         # 确保numpy数组是C连续的，然后转换到GPU
         best_pose = np.ascontiguousarray(best_pose)
