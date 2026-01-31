@@ -462,7 +462,8 @@ class HumanoidMimic(HumanoidChar):
         vel_too_large = torch.norm(self.root_states[:, 7:10], dim=-1) > 5.
         self.reset_buf |= vel_too_large
         
-        if self._pose_termination:
+        # CMG模式不提供body_pos参考，因此跳过pose_termination
+        if self._pose_termination and self._has_body_pos_ref:
             body_pos = self.rigid_body_states[:, self._key_body_ids, 0:3] - self.rigid_body_states[:, 0:1, 0:3]
             tar_body_pos = self._ref_body_pos[:, self._key_body_ids] - self._ref_root_pos[:, None, :] 
             
