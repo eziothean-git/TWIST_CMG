@@ -243,23 +243,25 @@ class MotionLibCMGRealtime:
             if self.settle_counter[env_id] > 0:
                 self.settle_counter[env_id] -= 1
         
-        # 从缓冲读取动作（批量操作）
+        # 从缓冲读取动作
         dof_pos = torch.zeros(N, self.dof_dim, device=self.device, dtype=torch.float32)
         dof_vel = torch.zeros(N, self.dof_dim, device=self.device, dtype=torch.float32)
         root_vel = torch.zeros(N, 3, device=self.device, dtype=torch.float32)
         root_ang_vel = torch.zeros(N, 3, device=self.device, dtype=torch.float32)
         
-        # 构建读取索引
-        read_indices = torch.tensor([self.buffer_read_idx[e] for e in env_ids_list], 
-                                     dtype=torch.long, device=self.device)
-        env_indices_tensor = torch.tensor(env_ids_list, dtype=torch.long, device=self.device)
-        
-        # 批量读取motion_buffer (需要手动gather)
+        # 逐环境读取（因为frame_idx不同，无法批量）
         for i, env_id in enumerate(env_ids_list):
             frame_idx = self.buffer_read_idx[env_id]
-            motion_data = self.motion_buffer[env_id, frame_idx, :]
-            dof_pos[i] = motion_data[:self.dof_dim]
-            dof_vel[i] = motion_data[self.dof_dim:]
+            
+            # 边界检查！
+            if frame_idx < 0 or frame_idx >= self.buffer_frames:
+                cprint(f"[ERROR] env {env_id} frame_idx={frame_idx} 越界！buffer_frames={self.buffer_frames}", "red")
+                frame_idx = max(0, min(frame_idx, self.buffer_frames - 1))
+            
+            # 用view而不是索引，避免GPU kernel问题
+            motion_data = self.motion_buffer[env_id][frame_idx]  # [58]
+            dof_pos[i, :] = motion_data[:self.dof_dim]
+            dof_vel[i, :] = motion_data[self.dof_dim:]
             
             # 落地稳定期速度为0
             if self.settle_counter[env_id] > 0:
