@@ -247,27 +247,12 @@ class HumanoidMimic(HumanoidChar):
         # 记录终止原因统计
         if hasattr(self, '_termination_contact'):
             n_reset = len(env_ids)
-            term_contact = self._termination_contact[env_ids].float().mean()
-            term_height = self._termination_height[env_ids].float().mean()
-            term_roll = self._termination_roll[env_ids].float().mean()
-            term_pitch = self._termination_pitch[env_ids].float().mean()
-            term_dof = self._termination_dof_tracking[env_ids].float().mean()
-            term_motion_end = self._termination_motion_end[env_ids].float().mean()
-            
-            self.extras["episode"]['termination_contact'] = term_contact
-            self.extras["episode"]['termination_height'] = term_height
-            self.extras["episode"]['termination_roll'] = term_roll
-            self.extras["episode"]['termination_pitch'] = term_pitch
-            self.extras["episode"]['termination_dof_tracking'] = term_dof
-            self.extras["episode"]['termination_motion_end'] = term_motion_end
-            
-            # 调试输出（每100次 reset 打印一次）
-            if not hasattr(self, '_reset_count'):
-                self._reset_count = 0
-            self._reset_count += 1
-            if self._reset_count % 100 == 1:
-                print(f"[Termination Stats] n_reset={n_reset}, contact={term_contact:.3f}, height={term_height:.3f}, "
-                      f"roll={term_roll:.3f}, pitch={term_pitch:.3f}, dof={term_dof:.3f}, motion_end={term_motion_end:.3f}")
+            self.extras["episode"]['termination_contact'] = self._termination_contact[env_ids].float().mean()
+            self.extras["episode"]['termination_height'] = self._termination_height[env_ids].float().mean()
+            self.extras["episode"]['termination_roll'] = self._termination_roll[env_ids].float().mean()
+            self.extras["episode"]['termination_pitch'] = self._termination_pitch[env_ids].float().mean()
+            self.extras["episode"]['termination_dof_tracking'] = self._termination_dof_tracking[env_ids].float().mean()
+            self.extras["episode"]['termination_motion_end'] = self._termination_motion_end[env_ids].float().mean()
         
         if self.cfg.motion.motion_curriculum:
             self._update_motion_difficulty(env_ids)
@@ -428,9 +413,10 @@ class HumanoidMimic(HumanoidChar):
             height_cutoff = torch.abs(self.root_states[:, 2] - self._ref_root_pos[:, 2]) > self.cfg.rewards.root_height_diff_threshold
         else:
             # CMG模式：使用绝对高度阈值
-            # G1站立高度约0.75m，正常行走范围0.5-1.0m
-            height_too_low = self.root_states[:, 2] < 0.5  # 低于0.5m说明跪下或摔倒
-            height_too_high = self.root_states[:, 2] > 1.2  # 高于1.2m不正常
+            # G1站立高度约0.75m，行走时约0.7-0.8m
+            # 收紧范围，强制机器人必须保持站立姿态
+            height_too_low = self.root_states[:, 2] < 0.62  # 低于0.62m说明蹲太低或摔倒
+            height_too_high = self.root_states[:, 2] > 0.95  # 高于0.95m不正常（跳起来？）
             height_cutoff = height_too_low | height_too_high
 
         roll_cut = torch.abs(self.roll) > self.cfg.rewards.termination_roll
