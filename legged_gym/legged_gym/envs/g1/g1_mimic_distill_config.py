@@ -335,9 +335,18 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/runs/cmg_20260123_194851/cmg_final.pt"
         cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/dataloader/cmg_training_data.pt"
         
-        # 动作池参数
+        # CMG模式选择
+        # True: 实时在环生成（落地稳定1秒后开始跟踪）- 推荐
+        # False: 预生成模式（从动作池采样）
+        cmg_realtime = True
+        
+        # 预生成模式参数（cmg_realtime=False时使用）
         cmg_num_motions = 1024    # 预生成1024条轨迹
         cmg_motion_length = 500  # 每条轨迹500帧 (10秒 @ 50fps)
+        
+        # 实时模式参数（cmg_realtime=True时使用）
+        cmg_buffer_frames = 10   # 缓冲帧数，减少推理频率
+        
         dof_dim = 29             # 关节自由度
         fps = 50.0               # 帧率
         

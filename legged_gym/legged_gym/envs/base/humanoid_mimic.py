@@ -11,6 +11,7 @@ from .humanoid_char import HumanoidChar, convert_to_global_root_body_pos, conver
 
 from pose.utils import torch_utils
 from pose.utils.motion_lib_cmg import create_motion_lib_cmg
+from pose.utils.motion_lib_cmg_realtime import create_motion_lib_cmg_realtime
 
 import time
 from termcolor import cprint
@@ -78,13 +79,24 @@ class HumanoidMimic(HumanoidChar):
         self._init_motion_buffers()
         
     def _load_motions(self):
-        """使用CMG生成参考动作"""
-        cprint("[HumanoidMimic] 使用CMG生成参考动作", "green")
-        self._motion_lib = create_motion_lib_cmg(
-            cfg=self.cfg,
-            num_envs=self.num_envs,
-            device=self.device
-        )
+        """使用CMG生成参考动作，支持预生成和实时两种模式"""
+        # 检查是否使用实时模式
+        use_realtime = getattr(self.cfg.motion, 'cmg_realtime', False)
+        
+        if use_realtime:
+            cprint("[HumanoidMimic] 使用CMG实时在环模式（落地稳定1秒后开始跟踪）", "green")
+            self._motion_lib = create_motion_lib_cmg_realtime(
+                cfg=self.cfg,
+                num_envs=self.num_envs,
+                device=self.device
+            )
+        else:
+            cprint("[HumanoidMimic] 使用CMG预生成模式", "green")
+            self._motion_lib = create_motion_lib_cmg(
+                cfg=self.cfg,
+                num_envs=self.num_envs,
+                device=self.device
+            )
         return
     
     def _init_motion_buffers(self):
@@ -214,12 +226,51 @@ class HumanoidMimic(HumanoidChar):
         # 【关键修复】CMG模式：同步self.commands与motion的velocity command
         # 这确保了_reward_tracking_lin_vel/ang_vel与参考轨迹一致
         from pose.utils.motion_lib_cmg import MotionLibCMG
-        if isinstance(self._motion_lib, MotionLibCMG):
-            # 获取该motion对应的velocity command
+        from pose.utils.motion_lib_cmg_realtime import MotionLibCMGRealtime
+        
+        if isinstance(self._motion_lib, MotionLibCMGRealtime):
+            # 实时模式：重置环境并采样新命令
+            # 前1秒会给零速度，之后才使用采样的命令
+            sampled_commands = self._sample_commands_for_realtime(n)
+            
+            # 获取仿真器的初始关节角度（default_joint_angles）作为落地稳定期的参考
+            init_dof_pos = self.default_dof_pos[env_ids].clone()
+            
+            # 调用 reset_envs 并传入初始关节角度
+            self._motion_lib.reset_envs(env_ids, sampled_commands, init_dof_pos)
+            
+            # 同步到 self.commands
+            self.commands[env_ids, 0] = sampled_commands[:, 0]  # vx
+            self.commands[env_ids, 1] = sampled_commands[:, 1]  # vy
+            self.commands[env_ids, 2] = sampled_commands[:, 2]  # yaw
+            
+            # 【调试】打印落地稳定信息
+            if self.common_step_counter == 0:
+                cprint(f"\n[Realtime Mode] 落地稳定期参考 dof_pos[:6]: {init_dof_pos[0, :6].tolist()}", "cyan")
+                cprint(f"[Realtime Mode] 采样命令: vx={sampled_commands[0, 0]:.2f}, vy={sampled_commands[0, 1]:.2f}, yaw={sampled_commands[0, 2]:.2f}", "cyan")
+        elif isinstance(self._motion_lib, MotionLibCMG):
+            # 预生成模式：获取该motion对应的velocity command
             motion_commands = self._motion_lib.get_motion_command(motion_ids)  # [n, 3] = (vx, vy, yaw)
             self.commands[env_ids, 0] = motion_commands[:, 0]  # vx
             self.commands[env_ids, 1] = motion_commands[:, 1]  # vy
             self.commands[env_ids, 2] = motion_commands[:, 2]  # yaw
+    
+    def _sample_commands_for_realtime(self, n: int) -> torch.Tensor:
+        """
+        为实时模式采样速度命令，基于curriculum_level
+        """
+        commands = torch.zeros(n, 3, device=self.device)
+        
+        # 使用curriculum_level控制命令范围
+        # level=0: vx=[0.3, 0.8], level=1: vx=[0.3, 2.5]
+        max_vx = 0.8 + self.curriculum_level * 1.7  # 0.8 -> 2.5
+        min_vx = 0.3
+        
+        commands[:, 0] = torch.rand(n, device=self.device) * (max_vx - min_vx) + min_vx
+        commands[:, 1] = 0.0  # 暂不侧移
+        commands[:, 2] = (torch.rand(n, device=self.device) - 0.5) * 0.4 * (0.5 + 0.5 * self.curriculum_level)  # yaw
+        
+        return commands
     
     def _resample_commands(self, env_ids):
         """
@@ -229,7 +280,13 @@ class HumanoidMimic(HumanoidChar):
             return
             
         from pose.utils.motion_lib_cmg import MotionLibCMG
-        if isinstance(self._motion_lib, MotionLibCMG):
+        from pose.utils.motion_lib_cmg_realtime import MotionLibCMGRealtime
+        
+        if isinstance(self._motion_lib, MotionLibCMGRealtime):
+            # 实时模式：可以动态更新命令（但不重置落地稳定期）
+            # 暂时不resample，让命令保持稳定
+            pass
+        elif isinstance(self._motion_lib, MotionLibCMG):
             # CMG模式：命令已在_reset_ref_motion中设置，这里不重新采样
             # 因为CMG轨迹与特定命令绑定，不能随意更换
             pass

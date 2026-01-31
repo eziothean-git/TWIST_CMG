@@ -108,7 +108,27 @@ class G1MimicDistill(HumanoidMimic):
             # self.motion_difficulty = torch.ones_like(self.motion_difficulty)
 
     def _reset_ref_motion(self, env_ids, motion_ids=None):
+        """
+        重置参考动作
+        
+        支持三种模式:
+        - Mocap模式: 从mocap数据采样
+        - CMG预生成模式: 从预生成的动作池采样
+        - CMG实时模式: 实时在环生成（前1秒落地稳定）
+        """
         n = len(env_ids)
+        
+        # 导入模式检测
+        from pose.utils.motion_lib_cmg import MotionLibCMG
+        from pose.utils.motion_lib_cmg_realtime import MotionLibCMGRealtime
+        
+        # ===== CMG 实时模式 =====
+        if isinstance(self._motion_lib, MotionLibCMGRealtime):
+            # 调用父类的实时模式逻辑
+            super()._reset_ref_motion(env_ids, motion_ids)
+            return
+        
+        # ===== 原有逻辑：Mocap 或 CMG 预生成模式 =====
         if motion_ids is None:
             motion_ids = self._motion_lib.sample_motions(n, motion_difficulty=self.motion_difficulty)
         
@@ -151,11 +171,8 @@ class G1MimicDistill(HumanoidMimic):
                 body_pos = g1_body_from_38_to_52(body_pos)
             self._ref_body_pos[env_ids] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
         
-        # 【关键修复】CMG模式：同步self.commands与motion的velocity command
-        # 这确保了_reward_tracking_lin_vel/ang_vel与参考轨迹一致
-        from pose.utils.motion_lib_cmg import MotionLibCMG
+        # 【CMG预生成模式】同步self.commands与motion的velocity command
         if isinstance(self._motion_lib, MotionLibCMG):
-            # 获取该motion对应的velocity command
             motion_commands = self._motion_lib.get_motion_command(motion_ids)  # [n, 3] = (vx, vy, yaw)
             self.commands[env_ids, 0] = motion_commands[:, 0]  # vx
             self.commands[env_ids, 1] = motion_commands[:, 1]  # vy
@@ -199,7 +216,9 @@ class G1MimicDistill(HumanoidMimic):
             return
             
         from pose.utils.motion_lib_cmg import MotionLibCMG
-        if isinstance(self._motion_lib, MotionLibCMG):
+        from pose.utils.motion_lib_cmg_realtime import MotionLibCMGRealtime
+        
+        if isinstance(self._motion_lib, (MotionLibCMG, MotionLibCMGRealtime)):
             # CMG模式：命令已在_reset_ref_motion中设置，这里不重新采样
             pass
         else:
