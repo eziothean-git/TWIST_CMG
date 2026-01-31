@@ -323,8 +323,10 @@ class MotionLibCMGRealtime:
         # 【关键】从参数推导N，避免任何env_ids的GPU操作
         if commands is not None:
             N = commands.shape[0]
+            commands = commands.contiguous()  # 确保连续
         elif init_dof_pos is not None:
             N = init_dof_pos.shape[0]
+            init_dof_pos = init_dof_pos.contiguous()  # 确保连续
         else:
             N = len(env_ids)
         
