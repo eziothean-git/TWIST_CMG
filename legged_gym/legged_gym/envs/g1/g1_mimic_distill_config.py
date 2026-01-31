@@ -141,10 +141,11 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         clip_actions = 5.0
     
     class asset(HumanoidMimicCfg.asset):
-        # Updated to 29 DOF URDF (official version from unitree_mujoco)
-        # file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision.urdf'
-        # file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision_with_fixed_hand.urdf'  # Old 23 DOF
-        file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_29dof.urdf'
+        # 29 DOF URDF with simplified collision geometry (based on Yanjie's g1_custom_collision.urdf)
+        # Uses cylinders/spheres instead of mesh for stable physics simulation
+        # file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision.urdf'  # 23 DOF
+        # file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_29dof.urdf'  # 29 DOF with mesh collision (unstable)
+        file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_29dof_simple_collision.urdf'  # 29 DOF with simple collision
         
         # for both joint and link name
         torso_name: str = 'pelvis'  # humanoid pelvis part
