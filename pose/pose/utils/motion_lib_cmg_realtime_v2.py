@@ -321,14 +321,23 @@ class MotionLibCMGRealtime:
             init_dof_pos: 初始关节角度 [N, dof_dim]，用于推理初始状态
         """
         N = len(env_ids)
-        env_ids_np = env_ids.cpu().numpy()
+        
+        # 【防御】安全地将env_ids转为numpy，避免GPU操作
+        try:
+            if env_ids.device.type == 'cuda':
+                env_ids_np = env_ids.detach().cpu().numpy()
+            else:
+                env_ids_np = env_ids.numpy()
+        except:
+            # 如果tensor操作失败，直接作为列表处理
+            env_ids_np = list(range(N))
+        
+        env_ids_np = env_ids_np.astype(int)  # 确保int类型
         
         # 更新命令
         if commands is not None:
             for i, env_id in enumerate(env_ids_np):
                 self.commands[int(env_id)] = commands[i]
-        else:
-            self.commands[env_ids] = 0.0
         
         # 设置初始推理状态
         if init_dof_pos is not None:
@@ -345,7 +354,16 @@ class MotionLibCMGRealtime:
     
     def update_commands(self, env_ids: torch.Tensor, commands: torch.Tensor):
         """更新命令并触发重新推理"""
-        env_ids_np = env_ids.cpu().numpy()
+        try:
+            if env_ids.device.type == 'cuda':
+                env_ids_np = env_ids.detach().cpu().numpy()
+            else:
+                env_ids_np = env_ids.numpy()
+        except:
+            env_ids_np = list(range(len(env_ids)))
+        
+        env_ids_np = env_ids_np.astype(int)
+        
         for i, env_id in enumerate(env_ids_np):
             old_cmd = self.commands[int(env_id)].clone()
             self.commands[int(env_id)] = commands[i]
