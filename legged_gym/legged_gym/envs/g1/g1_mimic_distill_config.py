@@ -57,14 +57,25 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         global_obs = False
         # global_obs = True
     
-    class terrain(HumanoidMimicCfg.terrain):
+    class terrain:
         mesh_type = 'trimesh'
         # mesh_type = 'plane'
-        # height = [0, 0.02]
-        height = [0, 0.00]
         horizontal_scale = 0.1
-        num_rows = 10  # 防止除零错误
+        vertical_scale = 0.005
+        border_size = 5
+        height = [0, 0.00]
+        curriculum = False
+        num_rows = 10
         num_cols = 40
+        terrain_length = 18.
+        terrain_width = 4
+        num_goals = 8
+        # terrain proportions - 全部使用平坦地形
+        terrain_proportions = [0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        slope_treshold = 1.5
+        static_friction = 1.0
+        dynamic_friction = 1.0
+        restitution = 0.
     
     class init_state(HumanoidMimicCfg.init_state):
         pos = [0, 0, 1.0]
