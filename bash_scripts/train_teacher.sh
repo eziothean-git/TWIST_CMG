@@ -18,6 +18,9 @@
 #   bash train_teacher.sh test_cmg cuda:0 0 normal resume               # 继续训练
 #   bash train_teacher.sh test_cmg cuda:0 0 normal bg                   # 后台运行
 
+
+#  应当使用的集合：
+#   bash train_teacher.sh TWIST_CMG_V[version] cuda:0 4096 normal "" cmg_[slow|medium|fast]
 set -e
 
 # 激活conda环境
