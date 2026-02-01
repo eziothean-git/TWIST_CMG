@@ -69,9 +69,10 @@ git clean -fd
 echo "    - 丢弃所有本地修改..."
 git reset --hard HEAD
 
-# 步骤4: 强制拉取最新代码
+# 步骤4: 强制拉取最新代码（处理偏离分支）
 echo ""
 echo "[3/4] 拉取最新代码..."
+echo "    - 强制重置到远程分支..."
 git reset --hard origin/$current_branch
 
 # 步骤5: 验证关键文件
