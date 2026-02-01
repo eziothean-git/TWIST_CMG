@@ -8,7 +8,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
                          50, 55, 60, 65, 70, 75, 80, 85, 90, 95,]
         
         num_envs = 4096
-        num_actions = 29  # Changed from 23 to 29 for full DOF control (including wrists)
+        num_actions = 23
         obs_type = 'priv' # 'student'
         n_priv_latent = 4 + 1 + 2*num_actions
         extra_critic_obs = 3
@@ -16,13 +16,12 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         
         n_proprio = 3 + 2 + 3*num_actions
         n_priv_mimic_obs = len(tar_obs_steps) * (8 + num_actions + 3*9) # Hardcode for now, 9 is base, 9 is the number of key bodies
-        n_cmg_obs = len(tar_obs_steps) * (2 * num_actions)
-        n_mimic_obs = num_actions # only dof pos in student mimic obs
+        n_mimic_obs = 8 + 23 # 23 for dof pos
         n_priv_info = 3 + 1 + 3*9 + 2 + 4 + 1 + 2*num_actions # base lin vel, root height, key body pos, contact mask, priv latent
         history_len = 10
         
-        n_obs_single = n_priv_mimic_obs + n_cmg_obs + n_proprio + n_priv_info
-        n_priv_obs_single = n_priv_mimic_obs + n_cmg_obs + n_proprio + n_priv_info
+        n_obs_single = n_priv_mimic_obs + n_proprio + n_priv_info
+        n_priv_obs_single = n_priv_mimic_obs + n_proprio + n_priv_info
         
         num_observations = n_obs_single
 
@@ -43,20 +42,14 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         enable_early_termination = True
         pose_termination = True
         pose_termination_dist = 0.7
-        rand_reset = False  # 从t=0开始采样，不随机
+        rand_reset = True
         track_root = False
-        
-        # 速度奖励渐进系数：当tracking_joint_dof reward达到阈值后才启用速度奖励
-        velocity_reward_threshold = 0.6  # tracking reward达到此值后开始启用速度奖励
-        velocity_reward_scale = 0.0  # 初始为0，训练中根据tracking表现动态调整
      
-        dof_err_w = [1.0, 0.8, 0.8, 1.0, 0.5, 0.5, # Left Leg (6)
-                     1.0, 0.8, 0.8, 1.0, 0.5, 0.5, # Right Leg (6)
-                     0.6, 0.6, 0.6, # Waist yaw, roll, pitch (3)
-                     0.8, 0.8, 0.8, 1.0, # Left Arm (4)
-                     0.5, 0.5, 0.5, # Left Wrist roll, pitch, yaw (3) - NEW
-                     0.8, 0.8, 0.8, 1.0, # Right Arm (4)
-                     0.5, 0.5, 0.5, # Right Wrist roll, pitch, yaw (3) - NEW
+        dof_err_w = [1.0, 0.8, 0.8, 1.0, 0.5, 0.5, # Left Leg
+                     1.0, 0.8, 0.8, 1.0, 0.5, 0.5, # Right Leg
+                     0.6, 0.6, 0.6, # waist yaw, roll, pitch
+                     0.8, 0.8, 0.8, 1.0, # Left Arm
+                     0.8, 0.8, 0.8, 1.0, # Right Arm
                      ]
         
 
@@ -72,7 +65,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         horizontal_scale = 0.1
     
     class init_state(HumanoidMimicCfg.init_state):
-        pos = [0, 0, 1.0]  # G1站立高度 1.0m （与Yanjie版本一致）
+        pos = [0, 0, 1.0]
         default_joint_angles = {
             'left_hip_pitch_joint': -0.2,
             'left_hip_roll_joint': 0.0,
@@ -101,14 +94,6 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
             'right_shoulder_roll_joint': -0.4,
             'right_shoulder_yaw_joint': 0.0,
             'right_elbow_joint': 1.2,
-            
-            # Wrist joints (6 DOF added for 29 DOF control)
-            'left_wrist_roll_joint': 0.0,
-            'left_wrist_pitch_joint': 0.0,
-            'left_wrist_yaw_joint': 0.0,
-            'right_wrist_roll_joint': 0.0,
-            'right_wrist_pitch_joint': 0.0,
-            'right_wrist_yaw_joint': 0.0,
         }
     
     class control(HumanoidMimicCfg.control):
@@ -120,7 +105,6 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
                      'waist': 150,
                      'shoulder': 40,
                      'elbow': 40,
-                     'wrist': 20,  # Wrist stiffness (NEW for 29 DOF)
                      }  # [N*m/rad]
         damping = {  'hip_yaw': 2,
                      'hip_roll': 2,
@@ -130,7 +114,6 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
                      'waist': 4,
                      'shoulder': 5,
                      'elbow': 5,
-                     'wrist': 1,  # Wrist damping (NEW for 29 DOF)
                      }  # [N*m/rad]  # [N*m*s/rad]
         
         action_scale = 0.5
@@ -145,11 +128,8 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         clip_actions = 5.0
     
     class asset(HumanoidMimicCfg.asset):
-        # 29 DOF URDF with simplified collision geometry (based on Yanjie's g1_custom_collision.urdf)
-        # Uses cylinders/spheres instead of mesh for stable physics simulation
-        # file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision.urdf'  # 23 DOF
-        # file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_29dof.urdf'  # 29 DOF with mesh collision (unstable)
-        file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_29dof_simple_collision.urdf'  # 29 DOF with simple collision
+        # file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision.urdf'
+        file = f'{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision_with_fixed_hand.urdf'
         
         # for both joint and link name
         torso_name: str = 'pelvis'  # humanoid pelvis part
@@ -177,15 +157,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         # knee, hip roll: 0.489 * 1e-4 * 22.5**2 + 0.109 * 1e-4 * 4.5**2 + 0.738 * 1e-4 = 0.0251
         # wrist: 0.068 * 1e-4 * 25**2 = 0.00425
         
-        # Updated for 29 DOF: added 6 wrist joints (3 per arm)
-        dof_armature = (
-            [0.0103, 0.0251, 0.0103, 0.0251, 0.003597, 0.003597] * 2 +  # Legs (12)
-            [0.0103] * 3 +                                                 # Waist (3)
-            [0.003597] * 4 +                                               # Left arm (4)
-            [0.00425] * 3 +                                                # Left wrist (3) - NEW
-            [0.003597] * 4 +                                               # Right arm (4)
-            [0.00425] * 3                                                  # Right wrist (3) - NEW
-        )
+        dof_armature = [0.0103, 0.0251, 0.0103, 0.0251, 0.003597, 0.003597] * 2 + [0.0103] * 3 + [0.003597] * 8
         
         # dof_armature = [0.0, 0.0, 0.0, 0.0, 0.0, 0.001] * 2 + [0.0] * 3 + [0.0] * 8
         
@@ -215,25 +187,13 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         regularization_scale_curriculum = False
         regularization_scale_gamma = 0.0001
         class scales:
-            # ========== 跟踪奖励配置 (参考Yanjie原版) ==========
-            # 初期100%为tracking，后期根据tracking表现渐进启用速度奖励
+            tracking_joint_dof = 0.6
+            tracking_joint_vel = 0.2
+            tracking_root_pose = 0.6
+            tracking_root_vel = 1.0
+            # tracking_keybody_pos = 0.6
+            tracking_keybody_pos = 2.0
             
-            # -- 关节跟踪 (主要奖励，与Yanjie一致) --
-            tracking_joint_dof = 1.5      # Yanjie原版: 1.5
-            tracking_joint_vel = 0.5      # Yanjie原版: 0.5
-            
-            # -- 速度命令跟踪 (初期为0，通过velocity_reward_scale渐进控制) --
-            # 基准值与Yanjie一致，实际值 = 基准值 × velocity_reward_scale
-            tracking_lin_vel = 0.5        # Yanjie原版: 0.5 (tracking_root_vel)
-            tracking_ang_vel = 0.25       # 角速度跟踪
-            
-            # ========== CMG不支持的奖励（已禁用）==========
-            # tracking_root_pose = 0.6    # CMG不提供root位置参考
-            # tracking_root_vel = 1.0     # CMG不提供root速度参考
-            # tracking_keybody_pos = 2.0  # CMG不提供body位置参考
-            # feet_height = 5.0           # CMG不提供脚部参考高度
-            
-            # ========== Locomotion正则化奖励 ==========
             # alive = 0.5
 
             feet_slip = -0.1
@@ -248,6 +208,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
             dof_acc = -5e-8
             action_rate = -0.01
             
+            # feet_height = 5.0
             feet_air_time = 5.0
             
             
@@ -324,22 +285,11 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         
     class motion(HumanoidMimicCfg.motion):
         motion_curriculum = True
-        motion_curriculum_gamma = 0.1  # 加快更新速度，因为现在是进度指标
-        curriculum_max_iters = 15000   # 15k迭代后命令范围达到最大
+        motion_curriculum_gamma = 0.01
+        key_bodies = ["left_rubber_hand", "right_rubber_hand", "left_ankle_roll_link", "right_ankle_roll_link", "left_knee_link", "right_knee_link", "left_elbow_link", "right_elbow_link", "head_mocap"] # 9 key bodies
+        upper_key_bodies = ["left_rubber_hand", "right_rubber_hand", "left_elbow_link", "right_elbow_link", "head_mocap"]
         
-        # 使用机器人实际的link名称（不是mocap标记点）
-        key_bodies = ["left_rubber_hand", "right_rubber_hand", "left_ankle_roll_link", "right_ankle_roll_link", "left_knee_link", "right_knee_link", "left_elbow_link", "right_elbow_link", "head_link"] # 9 key bodies
-        upper_key_bodies = ["left_rubber_hand", "right_rubber_hand", "left_elbow_link", "right_elbow_link", "head_link"]
-        
-        # CMG配置 - 使用CMG生成参考动作
-        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/runs/cmg_20260123_194851/cmg_final.pt"
-        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/dataloader/cmg_training_data.pt"
-        
-        # 动作池参数
-        cmg_num_motions = 1024    # 预生成1024条轨迹
-        cmg_motion_length = 500  # 每条轨迹500帧 (10秒 @ 50fps)
-        dof_dim = 29             # 关节自由度
-        fps = 50.0               # 帧率
+        motion_file = f"{LEGGED_GYM_ROOT_DIR}/motion_data_configs/twist_dataset.yaml"
         
         reset_consec_frames = 30
     
@@ -358,14 +308,13 @@ class G1MimicStuCfg(G1MimicPrivCfg):
         
         n_proprio = 3 + 2 + 3*num_actions
         n_priv_mimic_obs = len(tar_obs_steps) * (8 + num_actions + 3*9) # Hardcode for now, 9 is the number of key bodies
-        n_cmg_obs = len(tar_obs_steps) * (2 * num_actions)
-        n_mimic_obs = num_actions # only dof pos in student mimic obs
+        n_mimic_obs = 8 + 23 # 23 for dof pos
         
         n_priv_info = 3 + 1 + 3*9 + 2 + 4 + 1 + 2*num_actions # base lin vel, root height, key body pos, contact mask, priv latent
         history_len = 10
         
         n_obs_single = n_mimic_obs + n_proprio
-        n_priv_obs_single = n_priv_mimic_obs + n_cmg_obs + n_proprio + n_priv_info
+        n_priv_obs_single = n_priv_mimic_obs + n_proprio + n_priv_info
         
         num_observations = n_obs_single * (history_len + 1)
 
@@ -385,14 +334,13 @@ class G1MimicStuRLCfg(G1MimicPrivCfg):
         
         n_proprio = 3 + 2 + 3*num_actions
         n_priv_mimic_obs = len(tar_obs_steps) * (8 + num_actions + 3*9) # Hardcode for now, 9 is the number of key bodies
-        n_cmg_obs = len(tar_obs_steps) * (2 * num_actions)
-        n_mimic_obs = num_actions # only dof pos in student mimic obs
+        n_mimic_obs = 8 + 23 # 23 for dof pos
         
         n_priv_info = 3 + 1 + 3*9 + 2 + 4 + 1 + 2*num_actions # base lin vel, root height, key body pos, contact mask, priv latent
         history_len = 10
         
         n_obs_single = n_mimic_obs + n_proprio
-        n_priv_obs_single = n_priv_mimic_obs + n_cmg_obs + n_proprio + n_priv_info
+        n_priv_obs_single = n_priv_mimic_obs + n_proprio + n_priv_info
         
         num_observations = n_obs_single * (history_len + 1)
 
@@ -501,8 +449,7 @@ class G1MimicPrivCfgPPO(HumanoidMimicCfgPPO):
         # schedule = 'fixed' # could be adaptive, fixed
     
     class policy(HumanoidMimicCfgPPO.policy):
-        # action_std for 29 DOF: 12 legs + 3 waist + 8 arms + 6 wrists = 29
-        action_std = [0.7] * 12 + [0.4] * 3 + [0.5] * 8 + [0.3] * 6
+        action_std = [0.7] * 12 + [0.4] * 3 + [0.5] * 8
         init_noise_std = 1.0
         obs_context_len = 11
         actor_hidden_dims = [512, 512, 256, 128]
@@ -515,17 +462,17 @@ class G1MimicPrivCfgPPO(HumanoidMimicCfgPPO):
 
 class G1MimicStuRLCfgDAgger(G1MimicStuRLCfg):
     seed = 1
-    
+
     class teachercfg(G1MimicPrivCfgPPO):
         pass
-    
+
     class runner(G1MimicPrivCfgPPO.runner):
         policy_class_name = 'ActorCriticMimic'
         algorithm_class_name = 'DaggerPPO'
         runner_class_name = 'OnPolicyDaggerRunner'
         max_iterations = 30_002
         warm_iters = 100
-        
+
         # logging
         save_interval = 500
         experiment_name = 'test'
@@ -534,7 +481,7 @@ class G1MimicStuRLCfgDAgger(G1MimicStuRLCfg):
         load_run = -1
         checkpoint = -1
         resume_path = None
-        
+
         teacher_experiment_name = 'test'
         teacher_proj_name = 'g1_priv_mimic'
         teacher_checkpoint = -1
@@ -544,17 +491,16 @@ class G1MimicStuRLCfgDAgger(G1MimicStuRLCfg):
         grad_penalty_coef_schedule = [0.00, 0.00, 700, 1000]
         std_schedule = [1.0, 0.4, 4000, 1500]
         entropy_coef = 0.005
-        
+
         dagger_coef_anneal_steps = 60000  # Total steps to anneal dagger_coef to dagger_coef_min
-        
+
         dagger_coef = 0.1
         dagger_coef_min = 0.01  # Minimum value for dagger_coef
         # dagger_coef = 0.0
         # dagger_coef_min = 0.0  # Minimum value for dagger_coef
 
     class policy(HumanoidMimicCfgPPO.policy):
-        # action_std for 29 DOF: 12 legs + 3 waist + 8 arms + 6 wrists = 29
-        action_std = [0.7] * 12 + [0.4] * 3 + [0.5] * 8 + [0.3] * 6
+        action_std = [0.7] * 12 + [0.4] * 3 + [0.5] * 8
         init_noise_std = 1.0
         obs_context_len = 11
         actor_hidden_dims = [512, 512, 256, 128]
@@ -562,3 +508,121 @@ class G1MimicStuRLCfgDAgger(G1MimicStuRLCfg):
         activation = 'silu'
         layer_norm = True
         motion_latent_dim = 128
+
+
+# ==================== CMG-based Configurations ====================
+
+class G1MimicCMGBaseCfg(G1MimicPrivCfg):
+    """Base configuration for CMG-based motion generation."""
+
+    class terrain(G1MimicPrivCfg.terrain):
+        # Use simple plane terrain to reduce GPU memory usage
+        mesh_type = 'plane'
+
+    class motion(G1MimicPrivCfg.motion):
+        # Enable CMG motion generation
+        use_cmg = True
+        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/runs/cmg_20260123_194851/cmg_final.pt"
+        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/dataloader/cmg_training_data.pt"
+
+        # CMG operates at 50 Hz
+        cmg_dt = 0.02
+
+        # Default velocity ranges (overridden by speed-specific configs)
+        cmg_vx_range = [0.5, 1.5]
+        cmg_vy_range = [-0.3, 0.3]
+        cmg_yaw_range = [-0.5, 0.5]
+
+        # Disable motion curriculum for CMG (not applicable)
+        motion_curriculum = False
+
+    class env(G1MimicPrivCfg.env):
+        # For CMG, we don't track root position since it's generated
+        track_root = False
+        # Random reset not applicable for CMG
+        rand_reset = False
+
+
+class G1MimicCMGSlowCfg(G1MimicCMGBaseCfg):
+    """Slow speed training configuration (1 m/s)."""
+
+    class motion(G1MimicCMGBaseCfg.motion):
+        use_cmg = True
+        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/runs/cmg_20260123_194851/cmg_final.pt"
+        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/dataloader/cmg_training_data.pt"
+        cmg_dt = 0.02
+        motion_curriculum = False
+
+        # Slow speed: ~1 m/s forward
+        cmg_vx_range = [0.5, 1.5]
+        cmg_vy_range = [-0.3, 0.3]
+        cmg_yaw_range = [-0.5, 0.5]
+
+
+class G1MimicCMGMediumCfg(G1MimicCMGBaseCfg):
+    """Medium speed training configuration (2 m/s)."""
+
+    class motion(G1MimicCMGBaseCfg.motion):
+        use_cmg = True
+        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/runs/cmg_20260123_194851/cmg_final.pt"
+        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/dataloader/cmg_training_data.pt"
+        cmg_dt = 0.02
+        motion_curriculum = False
+
+        # Medium speed: ~2 m/s forward
+        cmg_vx_range = [1.5, 2.5]
+        cmg_vy_range = [-0.5, 0.5]
+        cmg_yaw_range = [-0.8, 0.8]
+
+
+class G1MimicCMGFastCfg(G1MimicCMGBaseCfg):
+    """Fast speed training configuration (3 m/s)."""
+
+    class motion(G1MimicCMGBaseCfg.motion):
+        use_cmg = True
+        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/runs/cmg_20260123_194851/cmg_final.pt"
+        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/dataloader/cmg_training_data.pt"
+        cmg_dt = 0.02
+        motion_curriculum = False
+
+        # Fast speed: ~3 m/s forward
+        cmg_vx_range = [2.5, 3.5]
+        cmg_vy_range = [-0.5, 0.5]
+        cmg_yaw_range = [-1.0, 1.0]
+
+
+# PPO configurations for CMG environments
+class G1MimicCMGSlowCfgPPO(G1MimicPrivCfgPPO):
+    seed = 1
+
+    class runner(G1MimicPrivCfgPPO.runner):
+        policy_class_name = 'ActorCriticMimic'
+        algorithm_class_name = 'PPO'
+        runner_class_name = 'OnPolicyRunnerMimic'
+        max_iterations = 30_002
+        save_interval = 500
+        experiment_name = 'cmg_slow'
+
+
+class G1MimicCMGMediumCfgPPO(G1MimicPrivCfgPPO):
+    seed = 1
+
+    class runner(G1MimicPrivCfgPPO.runner):
+        policy_class_name = 'ActorCriticMimic'
+        algorithm_class_name = 'PPO'
+        runner_class_name = 'OnPolicyRunnerMimic'
+        max_iterations = 30_002
+        save_interval = 500
+        experiment_name = 'cmg_medium'
+
+
+class G1MimicCMGFastCfgPPO(G1MimicPrivCfgPPO):
+    seed = 1
+
+    class runner(G1MimicPrivCfgPPO.runner):
+        policy_class_name = 'ActorCriticMimic'
+        algorithm_class_name = 'PPO'
+        runner_class_name = 'OnPolicyRunnerMimic'
+        max_iterations = 30_002
+        save_interval = 500
+        experiment_name = 'cmg_fast'

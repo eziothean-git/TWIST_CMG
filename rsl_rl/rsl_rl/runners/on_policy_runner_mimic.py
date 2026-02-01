@@ -33,6 +33,7 @@ import os
 from collections import deque
 import statistics
 from rich import print
+from tqdm import tqdm
 # from torch.utils.tensorboard import SummaryWriter
 import torch
 import torch.optim as optim
@@ -171,7 +172,7 @@ class OnPolicyRunnerMimic:
         tot_iter = self.current_learning_iteration + num_learning_iterations
         self.start_learning_iteration = copy(self.current_learning_iteration)
 
-        for it in range(self.current_learning_iteration, tot_iter):
+        for it in tqdm(range(self.current_learning_iteration, tot_iter), desc="Training", initial=self.current_learning_iteration, total=tot_iter):
             start = time.time()
             hist_encoding = it % self.dagger_update_freq == 0
             # Rollout
@@ -229,7 +230,6 @@ class OnPolicyRunnerMimic:
             regularization_scale = self.env.cfg.rewards.regularization_scale if hasattr(self.env.cfg.rewards, "regularization_scale") else 1
             average_episode_length = torch.mean(self.env.episode_length.float()).item() if hasattr(self.env, "episode_length") else 0
             mean_motion_difficulty = self.env.mean_motion_difficulty if hasattr(self.env, "mean_motion_difficulty") else 0
-            curriculum_level = self.env.curriculum_level if hasattr(self.env, "curriculum_level") else 0
             mean_value_loss, mean_surrogate_loss, mean_priv_reg_loss, priv_reg_coef, mean_grad_penalty_loss, grad_penalty_coef = self.alg.update()
             if hist_encoding and not self.cfg["algorithm_class_name"] == "PPO":
                 print("Updating dagger...")
@@ -239,9 +239,18 @@ class OnPolicyRunnerMimic:
             learn_time = stop - start
             if self.log_dir is not None:
                 self.log(locals())
-            # 固定每 save_interval 轮保存一次
-            if it % self.save_interval == 0:
-                self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
+            if it < 2500:
+                if it % self.save_interval == 0:
+                    self.current_learning_iteration = it
+                    self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
+            elif it < 5000:
+                if it % (2*self.save_interval) == 0:
+                    self.current_learning_iteration = it
+                    self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
+            else:
+                if it % (5*self.save_interval) == 0:
+                    self.current_learning_iteration = it
+                    self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
             ep_infos.clear()
         
         # self.current_learning_iteration += num_learning_iterations
@@ -271,8 +280,6 @@ class OnPolicyRunnerMimic:
                 # wandb_dict['Episode_rew/' + key] = value
                 if "metric" in key:
                     wandb_dict['Episode_rew_metrics/' + key] = value
-                elif "termination" in key:
-                    wandb_dict['Termination/' + key] = value
                 else:
                     if "tracking" in key:
                         wandb_dict['Episode_rew_tracking/' + key] = value
@@ -300,9 +307,6 @@ class OnPolicyRunnerMimic:
         
         if locs['mean_motion_difficulty'] != 0:
             wandb_dict['Scale/motion_difficulty'] = locs["mean_motion_difficulty"]
-        
-        if locs['curriculum_level'] != 0:
-            wandb_dict['Scale/curriculum_level'] = locs["curriculum_level"]
 
         wandb_dict['Policy/mean_noise_std'] = mean_std.item()
         wandb_dict['Perf/total_fps'] = fps

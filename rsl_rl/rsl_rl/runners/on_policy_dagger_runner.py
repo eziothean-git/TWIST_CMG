@@ -33,6 +33,7 @@ import os
 from collections import deque
 import statistics
 from rich import print
+from tqdm import tqdm
 
 # from torch.utils.tensorboard import SummaryWriter
 import torch
@@ -211,7 +212,7 @@ class OnPolicyDaggerRunner:
         tot_iter = self.current_learning_iteration + num_learning_iterations
         self.start_learning_iteration = copy(self.current_learning_iteration)
 
-        for it in range(self.current_learning_iteration, tot_iter):
+        for it in tqdm(range(self.current_learning_iteration, tot_iter), desc="Training", initial=self.current_learning_iteration, total=tot_iter):
             start = time.time()
             hist_encoding = it % self.dagger_update_freq == 0
             # Rollout
@@ -280,12 +281,15 @@ class OnPolicyDaggerRunner:
                 self.log(locals())
             if it < 2500:
                 if it % self.save_interval == 0:
+                    self.current_learning_iteration = it
                     self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
             elif it < 5000:
                 if it % (2*self.save_interval) == 0:
+                    self.current_learning_iteration = it
                     self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
             else:
                 if it % (5*self.save_interval) == 0:
+                    self.current_learning_iteration = it
                     self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
             ep_infos.clear()
         
