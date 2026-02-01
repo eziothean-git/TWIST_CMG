@@ -86,6 +86,7 @@ class HumanoidMimic(HumanoidChar):
                 raise ValueError(f"初始关节角缺失: {missingJoints}")
             initDofPos = [initAngles[name] for name in jointNameOrder]
             initDofVel = [0.0] * len(initDofPos)
+            self._use_cmg = True
             self._motion_lib = CMGMotionLib(
                 cmg_model_path=self.cfg.motion.cmg_model_path,
                 cmg_data_path=self.cfg.motion.cmg_data_path,
@@ -102,11 +103,10 @@ class HumanoidMimic(HumanoidChar):
                 initDofPos=initDofPos,
                 initDofVel=initDofVel,
             )
-            self._use_cmg = True
             cprint(f"[HumanoidMimic] CMG 运动生成已启用", "cyan")
         else:
-            self._motion_lib = MotionLib(motion_file=self.cfg.motion.motion_file, device=self.device)
             self._use_cmg = False
+            self._motion_lib = MotionLib(motion_file=self.cfg.motion.motion_file, device=self.device)
         return
     
     def _init_motion_buffers(self):
