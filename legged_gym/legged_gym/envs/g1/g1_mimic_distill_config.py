@@ -9,7 +9,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         
         num_envs = 4096
         num_actions = 23
-        obs_type = 'priv' # 'student'
+        obs_type = 'priv' # '教师'观察类型
         n_priv_latent = 4 + 1 + 2*num_actions
         extra_critic_obs = 3
         n_priv = 0

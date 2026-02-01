@@ -59,6 +59,8 @@ class CMGMotionLib:
         root_height: float = 0.75,
         offline_mode: bool = True,
         num_trajectories: int = 2048,
+        initDofPos: Optional[List[float]] = None,
+        initDofVel: Optional[List[float]] = None,
     ):
         """
         初始化 CMG 运动库
@@ -102,6 +104,8 @@ class CMGMotionLib:
             offline_mode=offline_mode,
             episode_length_s=episode_length_s,
             num_trajectories=num_trajectories,
+            initDofPos=initDofPos,
+            initDofVel=initDofVel,
         )
         self._bridge = CMGBridge(cfg=cfg, device=device)
         
@@ -123,6 +127,11 @@ class CMGMotionLib:
         print(f"[CMGMotionLib] 初始化: {num_envs} 环境, "
               f"{'离线' if offline_mode else '在线'}模式, "
               f"vx=[{vx_range[0]:.1f}, {vx_range[1]:.1f}]")
+
+    @property
+    def offline_mode(self) -> bool:
+        """当前是否为离线模式"""
+        return self._offline_mode
     
     # ==================== 采样接口（供训练环境调用） ====================
     
