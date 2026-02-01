@@ -50,8 +50,6 @@ class CMGBridgeConfig:
     offline_mode: bool = False              # 是否启用离线模式
     episode_length_s: float = 10.0          # episode 时长（秒）
     num_trajectories: int = 2048             # 离线轨迹池大小
-    initDofPos: Optional[List[float]] = None  # 初始关节角 (23/29)
-    initDofVel: Optional[List[float]] = None  # 初始关节角速度 (23/29)
 
 
 class TrajectoryFrame(NamedTuple):
@@ -342,36 +340,10 @@ class CMGBridge:
     
     def _get_default_init_motion(self, n: int) -> torch.Tensor:
         """获取默认站立姿态的初始运动状态"""
-        if self._cfg.initDofPos is None:
-            # 从训练样本随机采样初始状态
-            indices = np.random.randint(0, len(self._init_samples), size=n)
-            init_motions = np.stack([self._init_samples[idx]["motion"][0] for idx in indices], axis=0)
-            return torch.from_numpy(init_motions).float().to(self._device)
-
-        # 使用显式初始关节角
-        initDofPos = torch.tensor(self._cfg.initDofPos, device=self._device, dtype=torch.float)
-        if initDofPos.numel() == 23:
-            dofPos29 = torch.zeros(29, device=self._device, dtype=torch.float)
-            dofPos29[DOF_29_TO_23_INDICES] = initDofPos
-        elif initDofPos.numel() == 29:
-            dofPos29 = initDofPos
-        else:
-            raise ValueError(f"initDofPos 维度不合法: {initDofPos.numel()}")
-
-        if self._cfg.initDofVel is None:
-            dofVel29 = torch.zeros_like(dofPos29)
-        else:
-            initDofVel = torch.tensor(self._cfg.initDofVel, device=self._device, dtype=torch.float)
-            if initDofVel.numel() == 23:
-                dofVel29 = torch.zeros(29, device=self._device, dtype=torch.float)
-                dofVel29[DOF_29_TO_23_INDICES] = initDofVel
-            elif initDofVel.numel() == 29:
-                dofVel29 = initDofVel
-            else:
-                raise ValueError(f"initDofVel 维度不合法: {initDofVel.numel()}")
-
-        initMotion = torch.cat([dofPos29, dofVel29], dim=-1)
-        return initMotion.unsqueeze(0).repeat(n, 1)
+        # 从训练样本随机采样初始状态
+        indices = np.random.randint(0, len(self._init_samples), size=n)
+        init_motions = np.stack([self._init_samples[idx]["motion"][0] for idx in indices], axis=0)
+        return torch.from_numpy(init_motions).float().to(self._device)
     
     # ======================== 指令采样 ========================
     

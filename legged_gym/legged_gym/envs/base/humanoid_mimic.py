@@ -68,25 +68,6 @@ class HumanoidMimic(HumanoidChar):
         if getattr(self.cfg.motion, 'use_cmg', False):
             from pose.utils.cmg_motion_lib import CMGMotionLib
             urdf_path = f"{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision_with_fixed_hand.urdf"
-            # 使用配置里的初始姿态作为 CMG 第一帧
-            jointNameOrder = [
-                "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
-                "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
-                "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
-                "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint",
-                "waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint",
-                "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint",
-                "left_elbow_joint",
-                "right_shoulder_pitch_joint", "right_shoulder_roll_joint", "right_shoulder_yaw_joint",
-                "right_elbow_joint",
-            ]
-            initAngles = self.cfg.init_state.default_joint_angles
-            missingJoints = [name for name in jointNameOrder if name not in initAngles]
-            if len(missingJoints) > 0:
-                raise ValueError(f"初始关节角缺失: {missingJoints}")
-            initDofPos = [initAngles[name] for name in jointNameOrder]
-            initDofVel = [0.0] * len(initDofPos)
-            self._use_cmg = True
             self._motion_lib = CMGMotionLib(
                 cmg_model_path=self.cfg.motion.cmg_model_path,
                 cmg_data_path=self.cfg.motion.cmg_data_path,
@@ -100,13 +81,12 @@ class HumanoidMimic(HumanoidChar):
                 yaw_range=tuple(self.cfg.motion.cmg_yaw_range),
                 offline_mode=getattr(self.cfg.motion, 'cmg_offline_mode', True),
                 num_trajectories=getattr(self.cfg.motion, 'cmg_num_trajectories', 2048),
-                initDofPos=initDofPos,
-                initDofVel=initDofVel,
             )
+            self._use_cmg = True
             cprint(f"[HumanoidMimic] CMG 运动生成已启用", "cyan")
         else:
-            self._use_cmg = False
             self._motion_lib = MotionLib(motion_file=self.cfg.motion.motion_file, device=self.device)
+            self._use_cmg = False
         return
     
     def _init_motion_buffers(self):
@@ -137,12 +117,7 @@ class HumanoidMimic(HumanoidChar):
 
         # For CMG, reset the motion library state first
         if getattr(self, '_use_cmg', False):
-            if self._motion_lib.offline_mode:
-                self._motion_lib.reset(env_ids)
-            else:
-                # 在线模式下使用当前指令
-                cmd = self.commands[env_ids, 0:3]
-                self._motion_lib.reset(env_ids, commands=cmd)
+            self._motion_lib.reset(env_ids)
 
         if motion_ids is None:
             motion_ids = self._motion_lib.sample_motions(n, motion_difficulty=self.motion_difficulty)

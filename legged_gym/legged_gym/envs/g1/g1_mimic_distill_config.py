@@ -9,7 +9,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         
         num_envs = 4096
         num_actions = 23
-        obs_type = 'priv' # '教师'观察类型
+        obs_type = 'priv' # 'student'
         n_priv_latent = 4 + 1 + 2*num_actions
         extra_critic_obs = 3
         n_priv = 0
@@ -430,7 +430,7 @@ class G1MimicPrivCfgPPO(HumanoidMimicCfgPPO):
         max_iterations = 30_002 # number of policy updates
 
         # logging
-        save_interval = 250 # check for potential saves every this many iterations
+        save_interval = 500 # check for potential saves every this many iterations
         experiment_name = 'test'
         run_name = ''
         # load and resume
@@ -474,7 +474,7 @@ class G1MimicStuRLCfgDAgger(G1MimicStuRLCfg):
         warm_iters = 100
 
         # logging
-        save_interval = 250
+        save_interval = 500
         experiment_name = 'test'
         run_name = ''
         resume = False
@@ -595,7 +595,7 @@ class G1MimicCMGSlowCfgPPO(G1MimicPrivCfgPPO):
         algorithm_class_name = 'PPO'
         runner_class_name = 'OnPolicyRunnerMimic'
         max_iterations = 30_002
-        save_interval = 250
+        save_interval = 500
         experiment_name = 'cmg_slow'
 
 
@@ -607,7 +607,7 @@ class G1MimicCMGMediumCfgPPO(G1MimicPrivCfgPPO):
         algorithm_class_name = 'PPO'
         runner_class_name = 'OnPolicyRunnerMimic'
         max_iterations = 30_002
-        save_interval = 250
+        save_interval = 500
         experiment_name = 'cmg_medium'
 
 
@@ -619,5 +619,5 @@ class G1MimicCMGFastCfgPPO(G1MimicPrivCfgPPO):
         algorithm_class_name = 'PPO'
         runner_class_name = 'OnPolicyRunnerMimic'
         max_iterations = 30_002
-        save_interval = 250
+        save_interval = 500
         experiment_name = 'cmg_fast'
