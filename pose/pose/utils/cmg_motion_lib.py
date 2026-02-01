@@ -7,6 +7,7 @@ CMG Motion Library - 使用 CMGBridge 提供 MotionLib 兼容接口
 
 import os
 import sys
+import importlib.util
 import torch
 import numpy as np
 from typing import Optional, List, Tuple
@@ -17,7 +18,19 @@ _project_root = os.path.abspath(os.path.join(_current_dir, '..', '..', '..'))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from CMG_Ref.utils.cmg_bridge import CMGBridge, CMGBridgeConfig
+_cmg_bridge_path = os.path.join(_project_root, 'CMG_Ref', 'utils', 'cmg_bridge.py')
+if not os.path.isfile(_cmg_bridge_path):
+    raise FileNotFoundError(f"未找到 CMGBridge 文件: {_cmg_bridge_path}")
+
+_spec = importlib.util.spec_from_file_location('cmg_bridge', _cmg_bridge_path)
+if _spec is None or _spec.loader is None:
+    raise RuntimeError(f"无法加载 CMGBridge 模块: {_cmg_bridge_path}")
+_cmg_bridge_module = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_cmg_bridge_module)
+
+CMGBridge = _cmg_bridge_module.CMGBridge
+CMGBridgeConfig = _cmg_bridge_module.CMGBridgeConfig
+
 from pose.utils.forward_kinematics import ForwardKinematics
 
 
