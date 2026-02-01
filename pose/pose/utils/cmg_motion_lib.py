@@ -194,6 +194,14 @@ class CMGMotionLib:
     def step(self, env_ids: Optional[torch.Tensor] = None):
         """推进一步"""
         self._bridge.step(env_ids)
+
+    def _update_root_state(self, dt: float):
+        """
+        更新根节点状态（兼容接口）
+        离线模式下无需处理，在线模式由 CMGBridge 内部维护
+        """
+        self._bridge.update_root_state()
+        return
     
     def update_commands(self, env_ids: torch.Tensor, commands: torch.Tensor):
         """

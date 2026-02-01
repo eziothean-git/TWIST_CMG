@@ -159,10 +159,6 @@ class G1MimicDistill(HumanoidMimic):
         motion_ids = self._motion_ids
         motion_times = self._get_motion_times()
         
-        # CMG 模式：推进时间步
-        if getattr(self, '_use_cmg', False):
-            self._motion_lib.step()
-        
         root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = \
             self._motion_lib.calc_motion_frame(motion_ids, motion_times)
         root_pos[:, 2] += self.cfg.motion.height_offset

@@ -203,6 +203,11 @@ class CMGBridge:
         
         # 环境当前使用的指令（从轨迹池复制）
         self._commands = torch.zeros(n, 3, device=self._device)
+
+        # 根节点状态（用于显式更新）
+        self._root_pos = torch.zeros(n, 3, device=self._device)
+        self._root_pos[:, 2] = self._cfg.root_height
+        self._root_yaw = torch.zeros(n, device=self._device)
     
     @torch.no_grad()
     def _precompute_offline_trajectories(self, commands: Optional[torch.Tensor] = None):
@@ -657,6 +662,30 @@ class CMGBridge:
                 
                 # 更新最终运动状态
                 self._motion_norm[regen_ids] = motion_norm
+
+    def update_root_state(self, env_ids: Optional[torch.Tensor] = None):
+        """
+        显式更新根节点状态
+
+        Args:
+            env_ids: 环境索引，为 None 时更新全部环境
+        """
+        if env_ids is None:
+            env_ids = torch.arange(self._num_envs, device=self._device)
+
+        if self._offline_mode:
+            traj_idx = self._env_traj_idx[env_ids]
+            frame_idx = self._frame_idx[env_ids].clamp(0, self._total_frames - 1)
+            root_pos = self._pool_root_pos[traj_idx, frame_idx]
+            root_rot = self._pool_root_rot[traj_idx, frame_idx]
+        else:
+            frame_idx = self._frame_idx[env_ids].clamp(0, self._buffer_frames - 1)
+            root_pos = self._traj_root_pos[env_ids, frame_idx]
+            root_rot = self._traj_root_rot[env_ids, frame_idx]
+
+        # 更新根节点位置与偏航角
+        self._root_pos[env_ids] = root_pos
+        self._root_yaw[env_ids] = 2.0 * torch.atan2(root_rot[..., 2], root_rot[..., 3])
     
     def reset(self, env_ids: torch.Tensor, commands: Optional[torch.Tensor] = None):
         """
