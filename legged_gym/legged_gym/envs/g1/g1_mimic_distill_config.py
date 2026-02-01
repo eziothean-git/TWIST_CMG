@@ -63,6 +63,8 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         # height = [0, 0.02]
         height = [0, 0.00]
         horizontal_scale = 0.1
+        num_rows = 10  # 防止除零错误
+        num_cols = 40
     
     class init_state(HumanoidMimicCfg.init_state):
         pos = [0, 0, 1.0]
