@@ -295,8 +295,8 @@ class CMGBridge:
         """CMG 29 DOF → G1 23 DOF"""
         pos_29 = motion_29[..., :29]
         vel_29 = motion_29[..., 29:]
-        pos_23 = pos_29[..., CMG_TO_G1_INDICES]
-        vel_23 = vel_29[..., CMG_TO_G1_INDICES]
+        pos_23 = pos_29[..., DOF_29_TO_23_INDICES]
+        vel_23 = vel_29[..., DOF_29_TO_23_INDICES]
         return pos_23, vel_23
     
     def _extract_dof(self, motion: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
