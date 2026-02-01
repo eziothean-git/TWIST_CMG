@@ -97,6 +97,15 @@ bridge.reset(env_ids, traj_indices)
 bridge.reset(env_ids)  # 随机分配
 ```
 
+### 4. 离线模式显存释放
+
+#### 目标
+- 参考动作预计算完成后主动释放 CMG 模型与统计张量显存
+
+#### 实现
+- 预计算完成后调用 `_release_offline_resources()`
+- 释放 `_cmg`、归一化统计与初始化样本，并清理 CUDA 缓存
+
 ## API 汇总
 
 ### 在线模式

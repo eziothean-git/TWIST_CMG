@@ -105,6 +105,7 @@ class CMGBridge:
             self._num_trajectories = cfg.num_trajectories
             self._init_offline_buffers()
             self._precompute_offline_trajectories()
+            self._release_offline_resources()
         else:
             # 在线模式：保证前瞻 + 安全缓冲的最小生成长度
             min_generate_frames = int((cfg.lookahead_s + cfg.safety_margin_s) / cfg.dt)
@@ -282,6 +283,30 @@ class CMGBridge:
                 print(f"  已生成 {frame + 1}/{f} 帧")
         
         print(f"[CMGBridge] 离线轨迹池预计算完成")
+
+    def _release_offline_resources(self):
+        """离线模式预计算后释放模型显存"""
+        if not self._offline_mode:
+            return
+
+        if hasattr(self, "_cmg"):
+            del self._cmg
+            self._cmg = None
+
+        releaseTargets = [
+            "_motion_mean",
+            "_motion_std",
+            "_cmd_min",
+            "_cmd_max",
+            "_stats",
+            "_init_samples",
+        ]
+        for target in releaseTargets:
+            if hasattr(self, target):
+                setattr(self, target, None)
+
+        if torch.cuda.is_available() and str(self._device).startswith("cuda"):
+            torch.cuda.empty_cache()
     
     # ======================== 归一化 ========================
     
