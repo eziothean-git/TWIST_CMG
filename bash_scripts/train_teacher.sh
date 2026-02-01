@@ -2,21 +2,21 @@
 # Teacher训练脚本
 # 
 # 用法:
-#   bash train_teacher.sh <exptid> [device] [num_envs] [mode] [extra]
+#   bash train_teacher.sh <exptid> [device] [num_envs] [mode] [extra] [task_type]
 # 
 # 参数:
-#   exptid   - 实验ID (必需)
-#   device   - GPU设备, 默认 cuda:0
-#   num_envs - 环境数量, 默认不指定(使用config值), 可选: 32, 64, 128, 256, 512, 1024, 2048, 4096
-#   mode     - 运行模式, 默认normal, 可选: debug(32 envs + 可视化)
-#   extra    - 额外选项, 可选: bg(后台运行), resume(继续训练), bg+resume(两者都要)
+#   exptid    - 实验ID (必需)
+#   device    - GPU设备, 默认 cuda:0
+#   num_envs  - 环境数量, 默认不指定(使用config值), 可选: 32, 64, 128, 256, 512, 1024, 2048, 4096
+#   mode      - 运行模式, 默认normal, 可选: debug(32 envs + 可视化)
+#   extra     - 额外选项, 可选: bg(后台运行), resume(继续训练), bg+resume(两者都要)
+#   task_type - 任务类型, 默认priv, 可选: priv, cmg_slow, cmg_medium, cmg_fast
 #
 # 示例:
-#   bash train_teacher.sh test_cmg                            # 新训练
-#   bash train_teacher.sh test_cmg cuda:0 256                 # 256个环境
-#   bash train_teacher.sh test_cmg cuda:0 0 normal resume     # 继续训练
-#   bash train_teacher.sh test_cmg cuda:0 0 normal bg         # 后台运行
-#   bash train_teacher.sh test_cmg cuda:0 256 normal bg+resume # 后台继续训练
+#   bash train_teacher.sh test_priv                                     # 默认priv训练
+#   bash train_teacher.sh test_cmg cuda:0 1024 normal "" cmg_medium    # CMG中速训练
+#   bash train_teacher.sh test_cmg cuda:0 0 normal resume               # 继续训练
+#   bash train_teacher.sh test_cmg cuda:0 0 normal bg                   # 后台运行
 
 set -e
 
@@ -35,20 +35,46 @@ device=${2:-cuda:0}
 num_envs=${3:-0}
 mode=${4:-normal}
 extra=${5:-""}
+task_type=${6:-priv}  # 新增: priv, cmg_slow, cmg_medium, cmg_fast
 
-task_name="g1_priv_mimic"
-proj_name="g1_priv_mimic"
+# 根据 task_type 选择任务名和项目名
+case $task_type in
+    priv)
+        task_name="g1_priv_mimic"
+        proj_name="g1_priv_mimic"
+        ;;
+    cmg_slow)
+        task_name="g1_cmg_slow"
+        proj_name="g1_cmg_slow"
+        ;;
+    cmg_medium)
+        task_name="g1_cmg_medium"
+        proj_name="g1_cmg_medium"
+        ;;
+    cmg_fast)
+        task_name="g1_cmg_fast"
+        proj_name="g1_cmg_fast"
+        ;;
+    *)
+        echo "错误: 无效的task_type: $task_type"
+        echo "可选: priv, cmg_slow, cmg_medium, cmg_fast"
+        exit 1
+        ;;
+esac
+
 LOG_DIR="${SCRIPT_DIR}/logs"
 
 if [ -z "$exptid" ]; then
     echo "错误: 必须提供实验ID"
-    echo "用法: bash train_teacher.sh <exptid> [device] [num_envs] [mode] [extra]"
+    echo "用法: bash train_teacher.sh <exptid> [device] [num_envs] [mode] [extra] [task_type]"
+    echo ""
+    echo "参数:"
+    echo "  task_type - 任务类型: priv(默认), cmg_slow, cmg_medium, cmg_fast"
     echo ""
     echo "示例:"
-    echo "  bash train_teacher.sh test_cmg                            # 新训练"
-    echo "  bash train_teacher.sh test_cmg cuda:0 0 normal resume     # 继续训练"
-    echo "  bash train_teacher.sh test_cmg cuda:0 0 normal bg         # 后台运行"
-    echo "  bash train_teacher.sh test_cmg cuda:0 256 normal bg+resume # 后台继续训练"
+    echo "  bash train_teacher.sh test_cmg                                      # 默认priv任务"
+    echo "  bash train_teacher.sh test_cmg cuda:0 1024 normal \"\" cmg_medium   # CMG中速训练"
+    echo "  bash train_teacher.sh test_cmg cuda:0 0 normal resume               # 继续训练"
     exit 1
 fi
 
