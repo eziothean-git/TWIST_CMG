@@ -43,11 +43,13 @@ class CMGBridgeConfig:
     vy_range: Tuple[float, float] = (-0.3, 0.3)
     yaw_range: Tuple[float, float] = (-0.5, 0.5)
     root_height: float = 0.75               # 默认根节点高度
+    # 在线模式配置
+    lookahead_s: float = 2.0                # 保证前瞻余量（秒）
+    safety_margin_s: float = 0.5            # 安全缓冲（秒）
     # 离线模式配置
     offline_mode: bool = False              # 是否启用离线模式
     episode_length_s: float = 10.0          # episode 时长（秒）
-    lookahead_s: float = 2.0                # 前瞻时长（秒）
-    num_trajectories: int = 100             # 离线轨迹池大小
+    num_trajectories: int = 2048             # 离线轨迹池大小
 
 
 class TrajectoryFrame(NamedTuple):
@@ -104,8 +106,11 @@ class CMGBridge:
             self._init_offline_buffers()
             self._precompute_offline_trajectories()
         else:
-            # 在线模式：使用短缓冲
+            # 在线模式：保证前瞻 + 安全缓冲的最小生成长度
+            min_generate_frames = int((cfg.lookahead_s + cfg.safety_margin_s) / cfg.dt)
             self._buffer_frames = cfg.buffer_frames
+            self._generate_frames = max(self._buffer_frames, min_generate_frames)
+            self._reuse_threshold = self._buffer_frames - int(cfg.lookahead_s / cfg.dt)
             self._init_online_buffers()
         
         mode_str = "离线" if cfg.offline_mode else "在线"
@@ -169,6 +174,9 @@ class CMGBridge:
         self._root_pos = torch.zeros(n, 3, device=self._device)
         self._root_pos[:, 2] = self._cfg.root_height
         self._root_yaw = torch.zeros(n, device=self._device)
+        
+        # 标记缓冲区是否已初始化（用于检查是否需要首次生成）
+        self._initialized = torch.zeros(n, dtype=torch.bool, device=self._device)
     
     def _init_offline_buffers(self):
         """初始化离线模式缓冲区"""
@@ -197,17 +205,20 @@ class CMGBridge:
         self._commands = torch.zeros(n, 3, device=self._device)
     
     @torch.no_grad()
-    def _precompute_offline_trajectories(self):
+    def _precompute_offline_trajectories(self, commands: Optional[torch.Tensor] = None):
         """预计算离线轨迹池"""
         print(f"[CMGBridge] 预计算 {self._num_trajectories} 条离线轨迹，每条 {self._total_frames} 帧...")
         
         nt = self._num_trajectories
         f = self._total_frames
         
-        # 采样每条轨迹的指令
-        commands = self.sample_commands(nt)
-        self._pool_commands = commands
-        cmd_norm = self._normalize_cmd(commands)
+        # 采样每条轨迹的指令（支持外部指定）
+        if commands is None:
+            commands = self.sample_commands(nt)
+        elif len(commands) < nt:
+            raise ValueError(f"提供的指令数 {len(commands)} 少于轨迹数 {nt}")
+        self._pool_commands = commands[:nt]
+        cmd_norm = self._normalize_cmd(self._pool_commands)
         
         # 获取初始运动状态
         init_motion = self._get_default_init_motion(nt)
@@ -317,9 +328,84 @@ class CMGBridge:
     # ======================== 轨迹生成（在线模式） ========================
     
     @torch.no_grad()
+    def _generate_trajectory_segment(self, env_ids: torch.Tensor, num_frames: int, start_frame: int = 0):
+        """
+        生成指定长度的轨迹段（内部函数）
+        
+        Args:
+            env_ids: 环境索引 (n,)
+            num_frames: 要生成的帧数
+            start_frame: 在缓冲区中的起始写入位置
+        """
+        n = len(env_ids)
+        if n == 0:
+            return
+        
+        # 归一化指令
+        commands = self._commands[env_ids]
+        cmd_norm = self._normalize_cmd(commands)
+        
+        # 获取当前运动状态
+        motion_norm = self._motion_norm[env_ids]
+        
+        # 提取指令分量
+        vx = commands[:, 0]
+        vy = commands[:, 1]
+        yaw_rate = commands[:, 2]
+        
+        # 生成轨迹段
+        for frame in range(num_frames):
+            buf_frame = (start_frame + frame) % self._buffer_frames
+            
+            # 解码运动状态
+            motion = self._denormalize_motion(motion_norm)
+            dof_pos, dof_vel = self._extract_dof(motion)
+            
+            # 存入缓冲区
+            self._traj_dof_pos[env_ids, buf_frame] = dof_pos
+            self._traj_dof_vel[env_ids, buf_frame] = dof_vel
+            
+            # 计算根节点状态
+            t = (start_frame + frame) * self._dt
+            avg_yaw = self._root_yaw[env_ids] + yaw_rate * t * 0.5
+            new_yaw = self._root_yaw[env_ids] + yaw_rate * t
+            cos_yaw = torch.cos(avg_yaw)
+            sin_yaw = torch.sin(avg_yaw)
+            
+            # 根节点位置
+            self._traj_root_pos[env_ids, buf_frame, 0] = self._root_pos[env_ids, 0] + (vx * cos_yaw - vy * sin_yaw) * t
+            self._traj_root_pos[env_ids, buf_frame, 1] = self._root_pos[env_ids, 1] + (vx * sin_yaw + vy * cos_yaw) * t
+            self._traj_root_pos[env_ids, buf_frame, 2] = self._cfg.root_height
+            
+            # 根节点旋转（xyzw 格式）
+            half_yaw = new_yaw * 0.5
+            self._traj_root_rot[env_ids, buf_frame, 0] = 0.0
+            self._traj_root_rot[env_ids, buf_frame, 1] = 0.0
+            self._traj_root_rot[env_ids, buf_frame, 2] = torch.sin(half_yaw)
+            self._traj_root_rot[env_ids, buf_frame, 3] = torch.cos(half_yaw)
+            
+            # 根节点速度
+            curr_cos = torch.cos(new_yaw)
+            curr_sin = torch.sin(new_yaw)
+            self._traj_root_vel[env_ids, buf_frame, 0] = vx * curr_cos - vy * curr_sin
+            self._traj_root_vel[env_ids, buf_frame, 1] = vx * curr_sin + vy * curr_cos
+            self._traj_root_vel[env_ids, buf_frame, 2] = 0.0
+            
+            # 根节点角速度
+            self._traj_root_ang_vel[env_ids, buf_frame, 0] = 0.0
+            self._traj_root_ang_vel[env_ids, buf_frame, 1] = 0.0
+            self._traj_root_ang_vel[env_ids, buf_frame, 2] = yaw_rate
+            
+            # CMG 前向推理下一帧
+            motion_norm = self._cmg(motion_norm, cmd_norm)
+        
+        # 保存最终运动状态
+        self._motion_norm[env_ids] = motion_norm
+    
+    @torch.no_grad()
     def generate_trajectory(self, env_ids: torch.Tensor, commands: Optional[torch.Tensor] = None):
         """
-        为指定环境生成参考轨迹（仅在线模式）
+        为指定环境生成初始参考轨迹（仅在线模式）
         
         Args:
             env_ids: 环境索引 (n,)
@@ -342,65 +428,54 @@ class CMGBridge:
         motion_norm = self._normalize_motion(init_motion)
         self._motion_norm[env_ids] = motion_norm
         
-        # 归一化指令
-        cmd_norm = self._normalize_cmd(commands)
+        # 重置根节点状态
+        self._root_pos[env_ids] = 0.0
+        self._root_pos[env_ids, 2] = self._cfg.root_height
+        self._root_yaw[env_ids] = 0.0
+        
+        # 生成初始轨迹段
+        self._generate_trajectory_segment(env_ids, self._generate_frames, start_frame=0)
+        
+        # 重置帧索引和标记
+        self._frame_idx[env_ids] = 0
+        self._initialized[env_ids] = True
+    
+    @torch.no_grad()
+    def update_reference(self, env_ids: torch.Tensor, commands: torch.Tensor):
+        """
+        手动更新指定环境的参考轨迹指令并重新生成
+        用于处理指令变化的场景（如动作衔接阶段）
+        
+        Args:
+            env_ids: 环境索引 (n,)
+            commands: 新的速度指令 (n, 3)
+        """
+        if self._offline_mode:
+            raise RuntimeError("离线模式下不应手动更新指令")
+        
+        n = len(env_ids)
+        if n == 0:
+            return
+        
+        # 更新指令
+        self._commands[env_ids] = commands
+        
+        # 重新生成轨迹（从当前位置开始）
+        current_frame = self._frame_idx[env_ids]
+        
+        # 获取初始状态
+        init_motion = self._get_default_init_motion(n)
+        motion_norm = self._normalize_motion(init_motion)
+        self._motion_norm[env_ids] = motion_norm
         
         # 重置根节点状态
         self._root_pos[env_ids] = 0.0
         self._root_pos[env_ids, 2] = self._cfg.root_height
         self._root_yaw[env_ids] = 0.0
         
-        # 提取指令分量
-        vx = commands[:, 0]
-        vy = commands[:, 1]
-        yaw_rate = commands[:, 2]
-        
-        # 自回归生成轨迹
-        for frame in range(self._buffer_frames):
-            # 解码运动状态
-            motion = self._denormalize_motion(motion_norm)
-            dof_pos, dof_vel = self._extract_dof(motion)
-            
-            # 存入缓冲区
-            self._traj_dof_pos[env_ids, frame] = dof_pos
-            self._traj_dof_vel[env_ids, frame] = dof_vel
-            
-            # 计算根节点状态
-            t = frame * self._dt
-            avg_yaw = self._root_yaw[env_ids] + yaw_rate * t * 0.5
-            new_yaw = self._root_yaw[env_ids] + yaw_rate * t
-            cos_yaw = torch.cos(avg_yaw)
-            sin_yaw = torch.sin(avg_yaw)
-            
-            # 根节点位置
-            self._traj_root_pos[env_ids, frame, 0] = self._root_pos[env_ids, 0] + (vx * cos_yaw - vy * sin_yaw) * t
-            self._traj_root_pos[env_ids, frame, 1] = self._root_pos[env_ids, 1] + (vx * sin_yaw + vy * cos_yaw) * t
-            self._traj_root_pos[env_ids, frame, 2] = self._cfg.root_height
-            
-            # 根节点旋转（xyzw 格式）
-            half_yaw = new_yaw * 0.5
-            self._traj_root_rot[env_ids, frame, 0] = 0.0
-            self._traj_root_rot[env_ids, frame, 1] = 0.0
-            self._traj_root_rot[env_ids, frame, 2] = torch.sin(half_yaw)
-            self._traj_root_rot[env_ids, frame, 3] = torch.cos(half_yaw)
-            
-            # 根节点速度
-            curr_cos = torch.cos(new_yaw)
-            curr_sin = torch.sin(new_yaw)
-            self._traj_root_vel[env_ids, frame, 0] = vx * curr_cos - vy * curr_sin
-            self._traj_root_vel[env_ids, frame, 1] = vx * curr_sin + vy * curr_cos
-            self._traj_root_vel[env_ids, frame, 2] = 0.0
-            
-            # 根节点角速度
-            self._traj_root_ang_vel[env_ids, frame, 0] = 0.0
-            self._traj_root_ang_vel[env_ids, frame, 1] = 0.0
-            self._traj_root_ang_vel[env_ids, frame, 2] = yaw_rate
-            
-            # CMG 前向推理下一帧
-            motion_norm = self._cmg(motion_norm, cmd_norm)
-        
-        # 重置帧索引
-        self._frame_idx[env_ids] = 0
+        # 从当前帧重新生成
+        start_pos = current_frame.clamp(min=0)
+        self._generate_trajectory_segment(env_ids, self._generate_frames, start_frame=start_pos)
     
     # ======================== 查询接口 ========================
     
@@ -510,11 +585,74 @@ class CMGBridge:
                 reset_ids = env_ids[needs_reset]
                 self.reset(reset_ids)
         else:
-            # 在线模式：检查是否需要重新生成
-            needs_regen = self._frame_idx[env_ids] >= (self._buffer_frames - 10)
+            # 在线模式：检查是否需要续生成以保证最少 lookahead 余量
+            needs_regen = self._frame_idx[env_ids] >= self._reuse_threshold
             if needs_regen.any():
                 regen_ids = env_ids[needs_regen]
-                self.generate_trajectory(regen_ids, self._commands[regen_ids])
+                # 续生成缓冲区末尾的帧
+                start_pos = self._reuse_threshold
+                gen_frames = self._buffer_frames - start_pos
+                motion_norm = self._motion_norm[regen_ids]
+                
+                # 重新初始化根节点状态用于续生成
+                commands = self._commands[regen_ids]
+                cmd_norm = self._normalize_cmd(commands)
+                vx = commands[:, 0]
+                vy = commands[:, 1]
+                yaw_rate = commands[:, 2]
+                
+                # 计算续生成的起始时间
+                start_t = start_pos * self._dt
+                avg_yaw_base = self._root_yaw[regen_ids] + yaw_rate * start_t * 0.5
+                
+                # 生成新的轨迹段（覆盖旧数据）
+                for frame in range(gen_frames):
+                    buf_frame = start_pos + frame
+                    
+                    # 解码运动状态
+                    motion = self._denormalize_motion(motion_norm)
+                    dof_pos, dof_vel = self._extract_dof(motion)
+                    
+                    # 存入缓冲区
+                    self._traj_dof_pos[regen_ids, buf_frame] = dof_pos
+                    self._traj_dof_vel[regen_ids, buf_frame] = dof_vel
+                    
+                    # 计算根节点状态
+                    t = (start_pos + frame) * self._dt
+                    avg_yaw = avg_yaw_base + yaw_rate * (t - start_t) * 0.5
+                    new_yaw = self._root_yaw[regen_ids] + yaw_rate * t
+                    cos_yaw = torch.cos(avg_yaw)
+                    sin_yaw = torch.sin(avg_yaw)
+                    
+                    # 根节点位置
+                    self._traj_root_pos[regen_ids, buf_frame, 0] = self._root_pos[regen_ids, 0] + (vx * cos_yaw - vy * sin_yaw) * t
+                    self._traj_root_pos[regen_ids, buf_frame, 1] = self._root_pos[regen_ids, 1] + (vx * sin_yaw + vy * cos_yaw) * t
+                    self._traj_root_pos[regen_ids, buf_frame, 2] = self._cfg.root_height
+                    
+                    # 根节点旋转（xyzw 格式）
+                    half_yaw = new_yaw * 0.5
+                    self._traj_root_rot[regen_ids, buf_frame, 0] = 0.0
+                    self._traj_root_rot[regen_ids, buf_frame, 1] = 0.0
+                    self._traj_root_rot[regen_ids, buf_frame, 2] = torch.sin(half_yaw)
+                    self._traj_root_rot[regen_ids, buf_frame, 3] = torch.cos(half_yaw)
+                    
+                    # 根节点速度
+                    curr_cos = torch.cos(new_yaw)
+                    curr_sin = torch.sin(new_yaw)
+                    self._traj_root_vel[regen_ids, buf_frame, 0] = vx * curr_cos - vy * curr_sin
+                    self._traj_root_vel[regen_ids, buf_frame, 1] = vx * curr_sin + vy * curr_cos
+                    self._traj_root_vel[regen_ids, buf_frame, 2] = 0.0
+                    
+                    # 根节点角速度
+                    self._traj_root_ang_vel[regen_ids, buf_frame, 0] = 0.0
+                    self._traj_root_ang_vel[regen_ids, buf_frame, 1] = 0.0
+                    self._traj_root_ang_vel[regen_ids, buf_frame, 2] = yaw_rate
+                    
+                    # CMG 前向推理下一帧
+                    motion_norm = self._cmg(motion_norm, cmd_norm)
+                
+                # 更新最终运动状态
+                self._motion_norm[regen_ids] = motion_norm
     
     def reset(self, env_ids: torch.Tensor, commands: Optional[torch.Tensor] = None):
         """
@@ -522,14 +660,29 @@ class CMGBridge:
         
         Args:
             env_ids: 环境索引
-            commands: 速度指令，为 None 时随机采样（仅在线模式）
+            commands: 速度指令。
+                     在在线模式下，为 None 时随机采样；
+                     在离线模式下，为索引 (n,)，用于从轨迹池选择轨迹
         """
+        n = len(env_ids)
+        if n == 0:
+            return
+            
         if self._offline_mode:
-            # 离线模式：从轨迹池随机分配
-            n = len(env_ids)
-            new_traj_idx = torch.randint(0, self._num_trajectories, (n,), device=self._device)
-            self._env_traj_idx[env_ids] = new_traj_idx
-            self._commands[env_ids] = self._pool_commands[new_traj_idx]
+            # 离线模式：从轨迹池分配
+            if commands is None:
+                # 随机分配
+                traj_idx = torch.randint(0, self._num_trajectories, (n,), device=self._device)
+            else:
+                # 使用指定的轨迹索引（支持课程学习）
+                if not isinstance(commands, torch.Tensor):
+                    commands = torch.tensor(commands, dtype=torch.long, device=self._device)
+                traj_idx = commands.long().to(self._device)
+                if traj_idx.max() >= self._num_trajectories or traj_idx.min() < 0:
+                    raise ValueError(f"轨迹索引超出范围 [0, {self._num_trajectories})")
+            
+            self._env_traj_idx[env_ids] = traj_idx
+            self._commands[env_ids] = self._pool_commands[traj_idx]
             self._frame_idx[env_ids] = 0
         else:
             # 在线模式：生成新轨迹
