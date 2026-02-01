@@ -19,8 +19,11 @@ set -euo pipefail
 #   ISAAC_TAR=/home/eziothean/下载/IsaacGym_Preview_4_Package.tar.gz bash setup.sh
 # -----------------------
 
+# 自动定位到项目根目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="${SCRIPT_DIR}"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_DIR}"
+echo "[INFO] 项目根目录: ${REPO_DIR}"
 
 ISAAC_TAR="${ISAAC_TAR:-/root/Downloads/IsaacGym_Preview_4_Package.tar.gz}"
 ENV_NAME="${ENV_NAME:-twist}"

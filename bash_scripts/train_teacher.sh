@@ -24,8 +24,11 @@ set -e
 source ~/.bashrc
 conda activate twist 2>/dev/null || echo "[WARN] conda环境twist未找到，使用当前环境"
 
-# 切换到脚本目录
+# 自动定位到项目根目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${PROJECT_ROOT}"
+echo "[INFO] 工作目录: ${PROJECT_ROOT}"
 
 exptid=$1
 device=${2:-cuda:0}
@@ -92,10 +95,8 @@ if [ "$bg_mode" = "bg" ]; then
 fi
 echo "=========================================="
 
-cd "${SCRIPT_DIR}/legged_gym/legged_gym/scripts"
-
 # 构建完整命令
-CMD="python3 train.py --task ${task_name} --proj_name ${proj_name} --exptid ${exptid} --device ${device} ${extra_args}"
+CMD="python3 legged_gym/legged_gym/scripts/train.py --task ${task_name} --proj_name ${proj_name} --exptid ${exptid} --device ${device} ${extra_args}"
 
 # 后台运行模式
 if [ "$bg_mode" = "bg" ]; then

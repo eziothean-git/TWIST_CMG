@@ -22,7 +22,11 @@ set -e
 source ~/.bashrc
 conda activate twist 2>/dev/null || echo "[WARN] conda环境twist未找到"
 
+# 自动定位到项目根目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${PROJECT_ROOT}"
+echo "[INFO] 工作目录: ${PROJECT_ROOT}"
 
 task_name="g1_priv_mimic"
 proj_name="g1_priv_mimic"
@@ -58,9 +62,7 @@ echo "  Checkpoint: ${checkpoint}"
 echo "  环境数:     ${num_envs}"
 echo "=========================================="
 
-cd "${SCRIPT_DIR}/legged_gym/legged_gym/scripts"
-
-python3 play.py --task "${task_name}" \
+python3 legged_gym/legged_gym/scripts/play.py --task "${task_name}" \
                 --proj_name "${proj_name}" \
                 --exptid "${exptid}" \
                 --device "${device}" \

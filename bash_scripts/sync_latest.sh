@@ -5,6 +5,11 @@
 
 set -e
 
+# 自动定位到项目根目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${PROJECT_ROOT}"
+
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║         TWIST_CMG 代码同步脚本 (强制更新)               ║"
 echo "╚══════════════════════════════════════════════════════════╝"
@@ -12,8 +17,8 @@ echo ""
 
 # 检查是否在git仓库中
 if [ ! -d ".git" ]; then
-    echo "✗ 错误：当前目录不是git仓库"
-    echo "  请在 TWIST_CMG 根目录运行此脚本"
+    echo "✗ 错误：无法找到git仓库"
+    echo "  当前目录: $(pwd)"
     exit 1
 fi
 
