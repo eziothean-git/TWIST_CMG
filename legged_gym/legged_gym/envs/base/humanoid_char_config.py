@@ -96,7 +96,7 @@ class HumanoidCharCfg(BaseConfig):
         terrain_length = 18.
         terrain_width = 4
         num_rows= 10 # number of terrain rows (levels)  # spreaded is benifitiall !
-        num_cols = 10 # number of terrain cols (types)
+        num_cols = 40 # number of terrain cols (types)
         
         terrain_dict = {"smooth slope": 0., 
                         "rough slope up": 0.0,

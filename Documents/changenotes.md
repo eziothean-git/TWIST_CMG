@@ -188,15 +188,67 @@ CMGBridge.reset() / update_reference()
    - 确保 reset() 和 generate_trajectory() 调用时提供有效的指令
    - 指令形状必须为 (n, 3)，对应 (vx, vy, yaw_rate)
    - 指令来自训练部分的环境采样，保证数据一致性
-CMGBridge 模块支持两种工作模式：在线模式和离线模式，用于管理 CMG 自回归模型生成的参考轨迹。
 
-## 关键改进
+---
 
-### 1. 指令来源的正确设计
+## CMGMotionLib 适配层更新（新增）
 
-#### 核心原则
-- **初始姿态**：从数据集中采样（通过 `_get_default_init_motion()`）
-- **速度指令**：必须从训练部分传回，而不是在桥接器内独立采样
+### 概述
+`pose/pose/utils/cmg_motion_lib.py` 现作为 CMGBridge 的适配层，提供与原 MotionLib 兼容的接口。
+
+### 核心设计
+- **职责分离**：CMGMotionLib 只负责接口转换，不进行指令采样
+- **指令来源**：所有指令从训练环境传入（通过 `reset()` 和 `update_commands()`）
+- **FK 计算**：内部使用 ForwardKinematics 计算关键身体部位位置
+
+### 关键接口
+
+```python
+class CMGMotionLib:
+    # 初始化
+    __init__(cmg_model_path, cmg_data_path, urdf_path, device, num_envs, ...)
+    
+    # 重置环境
+    reset(env_ids, commands)
+    # - 离线模式：commands 为轨迹索引 (n,) 或 None（随机分配）
+    # - 在线模式：commands 为速度指令 (n, 3)
+    
+    # 推进时间步
+    step(env_ids=None)
+    
+    # 更新指令（仅在线模式）
+    update_commands(env_ids, commands)
+    
+    # 计算运动帧（MotionLib 兼容接口）
+    calc_motion_frame(motion_ids, motion_times, env_ids=None)
+    # 返回：root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos
+    
+    # 采样接口（MotionLib 兼容）
+    sample_motions(n, motion_difficulty=None)
+    sample_time(motion_ids)
+    get_motion_length(motion_ids)
+```
+
+### 配置更新
+
+**g1_mimic_distill_config.py** 新增参数：
+```python
+class motion:
+    cmg_offline_mode = True      # 是否使用离线模式
+    cmg_num_trajectories = 2048  # 离线轨迹池大小
+```
+
+**路径更新**：
+- `cmg_workspace` → `CMG_Ref`（统一使用项目内路径）
+
+### 训练部分修改
+
+**g1_mimic_distill.py**：
+- `_reset_ref_motion()`: 将 motion_ids 传递给 `reset()` 作为轨迹索引
+- `_update_ref_motion()`: 调用 `step()` 推进时间步
+
+**humanoid_mimic.py**：
+- `_load_motions()`: 添加 `offline_mode` 和 `num_trajectories` 参数传递
 
 #### 实现细节
 

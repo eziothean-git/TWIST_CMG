@@ -110,26 +110,32 @@ class G1MimicDistill(HumanoidMimic):
     def _reset_ref_motion(self, env_ids, motion_ids=None):
         n = len(env_ids)
 
-        # For CMG, reset the motion library state first
+        # CMG 模式：使用轨迹索引重置
         if getattr(self, '_use_cmg', False):
-            self._motion_lib.reset(env_ids)
-
-        if motion_ids is None:
-            motion_ids = self._motion_lib.sample_motions(n, motion_difficulty=self.motion_difficulty)
-
-        if self._rand_reset and not getattr(self, '_use_cmg', False):
-            motion_times = self._motion_lib.sample_time(motion_ids)
+            # 离线模式：motion_ids 作为轨迹池索引传入
+            # 在线模式：需要传入速度指令（当前未实现动态指令）
+            if motion_ids is None:
+                motion_ids = self._motion_lib.sample_motions(n, motion_difficulty=self.motion_difficulty)
+            self._motion_lib.reset(env_ids, commands=motion_ids)
+            motion_times = torch.zeros(n, device=self.device, dtype=torch.float)
         else:
-            motion_times = torch.zeros(motion_ids.shape, device=self.device, dtype=torch.float)
+            if motion_ids is None:
+                motion_ids = self._motion_lib.sample_motions(n, motion_difficulty=self.motion_difficulty)
+            if self._rand_reset:
+                motion_times = self._motion_lib.sample_time(motion_ids)
+            else:
+                motion_times = torch.zeros(motion_ids.shape, device=self.device, dtype=torch.float)
 
         self._motion_ids[env_ids] = motion_ids
         self._motion_time_offsets[env_ids] = motion_times
 
-        # For CMG, pass env_ids to handle partial reset correctly
+        # 计算参考帧
         if getattr(self, '_use_cmg', False):
-            root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times, env_ids=env_ids)
+            root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = \
+                self._motion_lib.calc_motion_frame(motion_ids, motion_times, env_ids=env_ids)
         else:
-            root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
+            root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = \
+                self._motion_lib.calc_motion_frame(motion_ids, motion_times)
         root_pos[:, 2] += self.cfg.motion.height_offset
 
         self._ref_root_pos[env_ids] = root_pos
@@ -139,9 +145,9 @@ class G1MimicDistill(HumanoidMimic):
         self._ref_dof_pos[env_ids] = dof_pos
         self._ref_dof_vel[env_ids] = dof_vel
 
-        # Handle body_pos based on motion source
+        # 处理 body_pos
         if getattr(self, '_use_cmg', False):
-            # CMG returns only 9 key body positions - place them directly at key_body_ids
+            # CMG 返回 9 个关键身体位置
             global_body_pos = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
             self._ref_body_pos[env_ids[:, None], self._key_body_ids] = global_body_pos
         else:
@@ -149,11 +155,16 @@ class G1MimicDistill(HumanoidMimic):
                 body_pos = g1_body_from_38_to_52(body_pos)
             self._ref_body_pos[env_ids] = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
     
-    
     def _update_ref_motion(self):
         motion_ids = self._motion_ids
         motion_times = self._get_motion_times()
-        root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = self._motion_lib.calc_motion_frame(motion_ids, motion_times)
+        
+        # CMG 模式：推进时间步
+        if getattr(self, '_use_cmg', False):
+            self._motion_lib.step()
+        
+        root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = \
+            self._motion_lib.calc_motion_frame(motion_ids, motion_times)
         root_pos[:, 2] += self.cfg.motion.height_offset
         root_pos[:, :2] += self.episode_init_origin[:, :2]
 
@@ -164,9 +175,8 @@ class G1MimicDistill(HumanoidMimic):
         self._ref_dof_pos[:] = dof_pos
         self._ref_dof_vel[:] = dof_vel
 
-        # Handle body_pos based on motion source
+        # 处理 body_pos
         if getattr(self, '_use_cmg', False):
-            # CMG returns only 9 key body positions - place them directly at key_body_ids
             global_body_pos = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
             self._ref_body_pos[:, self._key_body_ids] = global_body_pos
         else:

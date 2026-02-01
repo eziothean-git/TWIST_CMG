@@ -57,25 +57,12 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         global_obs = False
         # global_obs = True
     
-    class terrain:
+    class terrain(HumanoidMimicCfg.terrain):
         mesh_type = 'trimesh'
         # mesh_type = 'plane'
-        horizontal_scale = 0.1
-        vertical_scale = 0.005
-        border_size = 5
+        # height = [0, 0.02]
         height = [0, 0.00]
-        curriculum = False
-        num_rows = 10
-        num_cols = 40
-        terrain_length = 18.
-        terrain_width = 4
-        num_goals = 8
-        # terrain proportions - 全部使用平坦地形
-        terrain_proportions = [0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        slope_treshold = 1.5
-        static_friction = 1.0
-        dynamic_friction = 1.0
-        restitution = 0.
+        horizontal_scale = 0.1
     
     class init_state(HumanoidMimicCfg.init_state):
         pos = [0, 0, 1.0]
@@ -526,84 +513,74 @@ class G1MimicStuRLCfgDAgger(G1MimicStuRLCfg):
 # ==================== CMG-based Configurations ====================
 
 class G1MimicCMGBaseCfg(G1MimicPrivCfg):
-    """Base configuration for CMG-based motion generation."""
+    """CMG 运动生成基础配置"""
 
     class terrain(G1MimicPrivCfg.terrain):
-        # Use simple plane terrain to reduce GPU memory usage
         mesh_type = 'plane'
 
     class motion(G1MimicPrivCfg.motion):
-        # Enable CMG motion generation
+        # 启用 CMG 运动生成
         use_cmg = True
-        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/runs/cmg_20260123_194851/cmg_final.pt"
-        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/dataloader/cmg_training_data.pt"
+        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/runs/cmg_20260123_194851/cmg_final.pt"
+        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/dataloader/cmg_training_data.pt"
 
-        # CMG operates at 50 Hz
+        # CMG 运行频率 50Hz
         cmg_dt = 0.02
 
-        # Default velocity ranges (overridden by speed-specific configs)
+        # 速度范围（子类可覆盖）
         cmg_vx_range = [0.5, 1.5]
         cmg_vy_range = [-0.3, 0.3]
         cmg_yaw_range = [-0.5, 0.5]
 
-        # 冷启动阶段（True）使用离线预生成轨迹，动作衔接阶段（False）使用在线推理
-        cmg_offline_mode = True
-        # 离线模式轨迹池大小
-        cmg_num_trajectories = 2048
-
-        # Disable motion curriculum for CMG (not applicable)
+        # 禁用动作课程
         motion_curriculum = False
 
+        # 离线模式配置
+        cmg_offline_mode = True
+        cmg_num_trajectories = 2048
+
     class env(G1MimicPrivCfg.env):
-        # For CMG, we don't track root position since it's generated
         track_root = False
-        # Random reset not applicable for CMG
         rand_reset = False
 
 
 class G1MimicCMGSlowCfg(G1MimicCMGBaseCfg):
-    """Slow speed training configuration (1 m/s)."""
+    """慢速训练配置 (~1 m/s)"""
 
     class motion(G1MimicCMGBaseCfg.motion):
         use_cmg = True
-        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/runs/cmg_20260123_194851/cmg_final.pt"
-        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/dataloader/cmg_training_data.pt"
+        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/runs/cmg_20260123_194851/cmg_final.pt"
+        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/dataloader/cmg_training_data.pt"
         cmg_dt = 0.02
         motion_curriculum = False
-
-        # Slow speed: ~1 m/s forward
         cmg_vx_range = [0.5, 1.5]
         cmg_vy_range = [-0.3, 0.3]
         cmg_yaw_range = [-0.5, 0.5]
 
 
 class G1MimicCMGMediumCfg(G1MimicCMGBaseCfg):
-    """Medium speed training configuration (2 m/s)."""
+    """中速训练配置 (~2 m/s)"""
 
     class motion(G1MimicCMGBaseCfg.motion):
         use_cmg = True
-        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/runs/cmg_20260123_194851/cmg_final.pt"
-        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/dataloader/cmg_training_data.pt"
+        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/runs/cmg_20260123_194851/cmg_final.pt"
+        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/dataloader/cmg_training_data.pt"
         cmg_dt = 0.02
         motion_curriculum = False
-
-        # Medium speed: ~2 m/s forward
         cmg_vx_range = [1.5, 2.5]
         cmg_vy_range = [-0.5, 0.5]
         cmg_yaw_range = [-0.8, 0.8]
 
 
 class G1MimicCMGFastCfg(G1MimicCMGBaseCfg):
-    """Fast speed training configuration (3 m/s)."""
+    """高速训练配置 (~3 m/s)"""
 
     class motion(G1MimicCMGBaseCfg.motion):
         use_cmg = True
-        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/runs/cmg_20260123_194851/cmg_final.pt"
-        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../cmg_workspace/dataloader/cmg_training_data.pt"
+        cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/runs/cmg_20260123_194851/cmg_final.pt"
+        cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/dataloader/cmg_training_data.pt"
         cmg_dt = 0.02
         motion_curriculum = False
-
-        # Fast speed: ~3 m/s forward
         cmg_vx_range = [2.5, 3.5]
         cmg_vy_range = [-0.5, 0.5]
         cmg_yaw_range = [-1.0, 1.0]
