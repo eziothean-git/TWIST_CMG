@@ -21,7 +21,7 @@ from module.cmg import CMG
 
 
 # CMG 29 DOF → G1 23 DOF 映射（跳过双腕 6 DOF）
-CMG_TO_G1_INDICES = [
+DOF_29_TO_23_INDICES = [
     0, 1, 2, 3, 4, 5,       # 左腿 (6)
     6, 7, 8, 9, 10, 11,     # 右腿 (6)
     12, 13, 14,             # 腰部 (3)
@@ -214,7 +214,7 @@ class CMGBridge:
         
         # 采样每条轨迹的指令（支持外部指定）
         if commands is None:
-            commands = self.sample_commands(nt)
+            commands = self.sample_commands_from_config(nt)
         elif len(commands) < nt:
             raise ValueError(f"提供的指令数 {len(commands)} 少于轨迹数 {nt}")
         self._pool_commands = commands[:nt]
@@ -317,8 +317,11 @@ class CMGBridge:
     
     # ======================== 指令采样 ========================
     
-    def sample_commands(self, n: int) -> torch.Tensor:
-        """采样速度指令"""
+    def sample_commands_from_config(self, n: int) -> torch.Tensor:
+        """
+        根据配置范围采样速度指令
+        仅用于离线模式预计算轨迹池，不应在训练时使用
+        """
         cfg = self._cfg
         vx = torch.rand(n, device=self._device) * (cfg.vx_range[1] - cfg.vx_range[0]) + cfg.vx_range[0]
         vy = torch.rand(n, device=self._device) * (cfg.vy_range[1] - cfg.vy_range[0]) + cfg.vy_range[0]
@@ -403,13 +406,13 @@ class CMGBridge:
         self._motion_norm[env_ids] = motion_norm
     
     @torch.no_grad()
-    def generate_trajectory(self, env_ids: torch.Tensor, commands: Optional[torch.Tensor] = None):
+    def generate_trajectory(self, env_ids: torch.Tensor, commands: torch.Tensor):
         """
         为指定环境生成初始参考轨迹（仅在线模式）
         
         Args:
             env_ids: 环境索引 (n,)
-            commands: 速度指令 (n, 3)，为 None 时随机采样
+            commands: 速度指令 (n, 3)，来自训练部分
         """
         if self._offline_mode:
             raise RuntimeError("离线模式下不应调用 generate_trajectory，请使用 reset")
@@ -418,9 +421,10 @@ class CMGBridge:
         if n == 0:
             return
         
-        # 采样或设置指令
-        if commands is None:
-            commands = self.sample_commands(n)
+        if commands.shape[0] != n:
+            raise ValueError(f"commands 数量 {commands.shape[0]} 与 env_ids 不匹配 {n}")
+        
+        # 设置指令
         self._commands[env_ids] = commands
         
         # 获取初始状态并归一化
@@ -660,9 +664,9 @@ class CMGBridge:
         
         Args:
             env_ids: 环境索引
-            commands: 速度指令。
-                     在在线模式下，为 None 时随机采样；
-                     在离线模式下，为索引 (n,)，用于从轨迹池选择轨迹
+            commands: 
+                     在在线模式下：速度指令 (n, 3)，来自训练部分，必须提供
+                     在离线模式下：轨迹索引 (n,) 或 None（None 时随机分配）
         """
         n = len(env_ids)
         if n == 0:
@@ -686,6 +690,8 @@ class CMGBridge:
             self._frame_idx[env_ids] = 0
         else:
             # 在线模式：生成新轨迹
+            if commands is None:
+                raise RuntimeError("在线模式下 reset 必须提供指令 commands，来自训练部分")
             self.generate_trajectory(env_ids, commands)
     
     # ======================== 属性 ========================

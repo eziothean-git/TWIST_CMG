@@ -66,8 +66,12 @@ class HumanoidMimic(HumanoidChar):
         
     def _load_motions(self):
         if getattr(self.cfg.motion, 'use_cmg', False):
-            from pose.utils.cmg_motion_lib import CMGMotionLib
+            from pose.utils.cmg_motion_lib_v2 import CMGMotionLib
             urdf_path = f"{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision_with_fixed_hand.urdf"
+            # 获取离线模式配置，默认 True（冷启动阶段）
+            offline_mode = getattr(self.cfg.motion, 'cmg_offline_mode', True)
+            num_trajectories = getattr(self.cfg.motion, 'cmg_num_trajectories', 2048)
+            
             self._motion_lib = CMGMotionLib(
                 cmg_model_path=self.cfg.motion.cmg_model_path,
                 cmg_data_path=self.cfg.motion.cmg_data_path,
@@ -79,9 +83,12 @@ class HumanoidMimic(HumanoidChar):
                 vx_range=tuple(self.cfg.motion.cmg_vx_range),
                 vy_range=tuple(self.cfg.motion.cmg_vy_range),
                 yaw_range=tuple(self.cfg.motion.cmg_yaw_range),
+                offline_mode=offline_mode,
+                num_trajectories=num_trajectories,
             )
             self._use_cmg = True
-            cprint(f"[HumanoidMimic] Using CMG motion generation", "cyan")
+            mode_str = "离线" if offline_mode else "在线"
+            cprint(f"[HumanoidMimic] CMG {mode_str}模式启用", "cyan")
         else:
             self._motion_lib = MotionLib(motion_file=self.cfg.motion.motion_file, device=self.device)
             self._use_cmg = False
@@ -307,11 +314,9 @@ class HumanoidMimic(HumanoidChar):
         """ Callback called before computing terminations, rewards, and observations
             Default behaviour: Compute ang vel command based on target and heading, compute measured terrain heights and randomly push robots
         """
-        # For CMG: advance the autoregressive state before updating ref motion
+        # CMG 在每一步推进自回归状态
         if getattr(self, '_use_cmg', False):
             self._motion_lib.step()
-            # Update root state based on velocity commands
-            self._motion_lib._update_root_state(self.dt)
 
         self._update_ref_motion()
         # self._hard_sync_motion_loop()

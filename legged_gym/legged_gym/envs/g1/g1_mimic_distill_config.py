@@ -533,6 +533,11 @@ class G1MimicCMGBaseCfg(G1MimicPrivCfg):
         cmg_vy_range = [-0.3, 0.3]
         cmg_yaw_range = [-0.5, 0.5]
 
+        # 冷启动阶段（True）使用离线预生成轨迹，动作衔接阶段（False）使用在线推理
+        cmg_offline_mode = True
+        # 离线模式轨迹池大小
+        cmg_num_trajectories = 2048
+
         # Disable motion curriculum for CMG (not applicable)
         motion_curriculum = False
 
