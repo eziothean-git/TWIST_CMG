@@ -242,13 +242,31 @@ class G1MimicDistill(HumanoidMimic):
         return result
     
     def _draw_ref_dof_skeleton(self):
-        """使用参考DOF绘制简化骨架（直接从关节角度推断位置）"""
+        """使用参考DOF绘制简化骨架，应用根节点旋转"""
         env_id = 0
         
         # 获取参考位置和旋转
         ref_pos = self._ref_root_pos[env_id].cpu().numpy()
-        ref_rot = self._ref_root_rot[env_id].cpu().numpy()
+        ref_rot = self._ref_root_rot[env_id].cpu().numpy()  # xyzw格式
         ref_dof = self._ref_dof_pos[env_id].cpu().numpy()
+        
+        # 从四元数提取yaw角（xyzw格式）
+        # 修复：添加π旋转以修正180度偏移
+        qx, qy, qz, qw = ref_rot
+        yaw = np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
+        yaw += np.pi  # 修复180度偏移
+        cos_yaw = np.cos(yaw)
+        sin_yaw = np.sin(yaw)
+        
+        def rotate_point(p, origin):
+            """将点绕origin旋转yaw角度"""
+            dx = p[0] - origin[0]
+            dy = p[1] - origin[1]
+            return np.array([
+                origin[0] + dx * cos_yaw - dy * sin_yaw,
+                origin[1] + dx * sin_yaw + dy * cos_yaw,
+                p[2]
+            ])
         
         # 简化的骨架长度参数（米）
         thigh_len = 0.35
@@ -260,60 +278,101 @@ class G1MimicDistill(HumanoidMimic):
         # 骨盆位置
         pelvis = ref_pos.copy()
         
-        # 计算左腿
-        left_hip = pelvis + [0, 0.1, 0]
-        left_knee = left_hip + [thigh_len * np.sin(ref_dof[0]), 0, -thigh_len * np.cos(ref_dof[0])]
-        left_ankle = left_knee + [shank_len * np.sin(ref_dof[0] + ref_dof[3]), 0, -shank_len * np.cos(ref_dof[0] + ref_dof[3])]
+        # 计算关节位置（局部坐标）
+        # 左腿
+        left_hip_local = pelvis + np.array([0, 0.1, 0])
+        left_knee_local = left_hip_local + np.array([thigh_len * np.sin(ref_dof[0]), 0, -thigh_len * np.cos(ref_dof[0])])
+        left_ankle_local = left_knee_local + np.array([shank_len * np.sin(ref_dof[0] + ref_dof[3]), 0, -shank_len * np.cos(ref_dof[0] + ref_dof[3])])
         
-        # 计算右腿
-        right_hip = pelvis + [0, -0.1, 0]
-        right_knee = right_hip + [thigh_len * np.sin(ref_dof[6]), 0, -thigh_len * np.cos(ref_dof[6])]
-        right_ankle = right_knee + [shank_len * np.sin(ref_dof[6] + ref_dof[9]), 0, -shank_len * np.cos(ref_dof[6] + ref_dof[9])]
+        # 右腿
+        right_hip_local = pelvis + np.array([0, -0.1, 0])
+        right_knee_local = right_hip_local + np.array([thigh_len * np.sin(ref_dof[6]), 0, -thigh_len * np.cos(ref_dof[6])])
+        right_ankle_local = right_knee_local + np.array([shank_len * np.sin(ref_dof[6] + ref_dof[9]), 0, -shank_len * np.cos(ref_dof[6] + ref_dof[9])])
         
-        # 计算躯干
-        torso = pelvis + [0, 0, torso_height]
+        # 躯干和头
+        torso_local = pelvis + np.array([0, 0, torso_height])
+        head_local = torso_local + np.array([0, 0, 0.2])
         
-        # 计算左臂
-        left_shoulder = torso + [0, 0.2, 0]
-        left_elbow = left_shoulder + [upper_arm_len * np.sin(ref_dof[15]), 0, -upper_arm_len * np.cos(ref_dof[15])]
-        left_hand = left_elbow + [forearm_len * np.sin(ref_dof[15] + ref_dof[18]), 0, -forearm_len * np.cos(ref_dof[15] + ref_dof[18])]
+        # 左臂
+        left_shoulder_local = torso_local + np.array([0, 0.2, 0])
+        left_elbow_local = left_shoulder_local + np.array([upper_arm_len * np.sin(ref_dof[15]), 0, -upper_arm_len * np.cos(ref_dof[15])])
+        left_hand_local = left_elbow_local + np.array([forearm_len * np.sin(ref_dof[15] + ref_dof[18]), 0, -forearm_len * np.cos(ref_dof[15] + ref_dof[18])])
         
-        # 计算右臂
-        right_shoulder = torso + [0, -0.2, 0]
-        right_elbow = right_shoulder + [upper_arm_len * np.sin(ref_dof[19]), 0, -upper_arm_len * np.cos(ref_dof[19])]
-        right_hand = right_elbow + [forearm_len * np.sin(ref_dof[19] + ref_dof[22]), 0, -forearm_len * np.cos(ref_dof[19] + ref_dof[22])]
+        # 右臂
+        right_shoulder_local = torso_local + np.array([0, -0.2, 0])
+        right_elbow_local = right_shoulder_local + np.array([upper_arm_len * np.sin(ref_dof[19]), 0, -upper_arm_len * np.cos(ref_dof[19])])
+        right_hand_local = right_elbow_local + np.array([forearm_len * np.sin(ref_dof[19] + ref_dof[22]), 0, -forearm_len * np.cos(ref_dof[19] + ref_dof[22])])
         
-        # 定义要绘制的线段 (start, end) 和颜色
-        lines = [
-            # 躯干 - 白色
-            (pelvis, torso, [1.0, 1.0, 1.0]),
-            # 左腿 - 青色
-            (pelvis, left_hip, [0.0, 1.0, 1.0]),
-            (left_hip, left_knee, [0.0, 1.0, 1.0]),
-            (left_knee, left_ankle, [0.0, 1.0, 1.0]),
-            # 右腿 - 黄色
-            (pelvis, right_hip, [1.0, 1.0, 0.0]),
-            (right_hip, right_knee, [1.0, 1.0, 0.0]),
-            (right_knee, right_ankle, [1.0, 1.0, 0.0]),
-            # 左臂 - 绿色
-            (torso, left_shoulder, [0.0, 1.0, 0.0]),
-            (left_shoulder, left_elbow, [0.0, 1.0, 0.0]),
-            (left_elbow, left_hand, [0.0, 1.0, 0.0]),
-            # 右臂 - 红色
-            (torso, right_shoulder, [1.0, 0.0, 0.0]),
-            (right_shoulder, right_elbow, [1.0, 0.0, 0.0]),
-            (right_elbow, right_hand, [1.0, 0.0, 0.0]),
+        # 应用yaw旋转到所有点
+        left_hip = rotate_point(left_hip_local, pelvis)
+        left_knee = rotate_point(left_knee_local, pelvis)
+        left_ankle = rotate_point(left_ankle_local, pelvis)
+        right_hip = rotate_point(right_hip_local, pelvis)
+        right_knee = rotate_point(right_knee_local, pelvis)
+        right_ankle = rotate_point(right_ankle_local, pelvis)
+        torso = rotate_point(torso_local, pelvis)
+        head = rotate_point(head_local, pelvis)
+        left_shoulder = rotate_point(left_shoulder_local, pelvis)
+        left_elbow = rotate_point(left_elbow_local, pelvis)
+        left_hand = rotate_point(left_hand_local, pelvis)
+        right_shoulder = rotate_point(right_shoulder_local, pelvis)
+        right_elbow = rotate_point(right_elbow_local, pelvis)
+        right_hand = rotate_point(right_hand_local, pelvis)
+        
+        # 使用球体绘制关节位置（更清晰）
+        sphere_size = 0.04
+        joints = [
+            (pelvis, (1.0, 1.0, 1.0)),      # 骨盆-白
+            (torso, (1.0, 1.0, 1.0)),       # 躯干-白
+            (head, (1.0, 0.5, 0.0)),        # 头-橙
+            (left_hip, (0.0, 1.0, 1.0)),    # 左髋-青
+            (left_knee, (0.0, 1.0, 1.0)),   # 左膝-青
+            (left_ankle, (0.0, 1.0, 1.0)),  # 左踝-青
+            (right_hip, (1.0, 1.0, 0.0)),   # 右髋-黄
+            (right_knee, (1.0, 1.0, 0.0)),  # 右膝-黄
+            (right_ankle, (1.0, 1.0, 0.0)), # 右踝-黄
+            (left_shoulder, (0.0, 1.0, 0.0)),  # 左肩-绿
+            (left_elbow, (0.0, 1.0, 0.0)),     # 左肘-绿
+            (left_hand, (0.0, 1.0, 0.0)),      # 左手-绿
+            (right_shoulder, (1.0, 0.0, 0.0)), # 右肩-红
+            (right_elbow, (1.0, 0.0, 0.0)),    # 右肘-红
+            (right_hand, (1.0, 0.0, 0.0)),     # 右手-红
         ]
         
-        # 绘制所有线段
-        for start, end, color in lines:
-            self.gym.add_lines(
-                self.viewer,
-                self.envs[env_id],
-                1,
-                [start[0], start[1], start[2], end[0], end[1], end[2]],
-                color
-            )
+        for pos, color in joints:
+            sphere_geom = gymutil.WireframeSphereGeometry(sphere_size, 8, 8, None, color=color)
+            sphere_pose = gymapi.Transform(gymapi.Vec3(pos[0], pos[1], pos[2]), r=None)
+            gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[env_id], sphere_pose)
+        
+        # 绘制骨骼连接线（加粗效果：多条平行线）
+        bones = [
+            (pelvis, torso, (1.0, 1.0, 1.0)),
+            (torso, head, (1.0, 0.5, 0.0)),
+            (pelvis, left_hip, (0.0, 1.0, 1.0)),
+            (left_hip, left_knee, (0.0, 1.0, 1.0)),
+            (left_knee, left_ankle, (0.0, 1.0, 1.0)),
+            (pelvis, right_hip, (1.0, 1.0, 0.0)),
+            (right_hip, right_knee, (1.0, 1.0, 0.0)),
+            (right_knee, right_ankle, (1.0, 1.0, 0.0)),
+            (torso, left_shoulder, (0.0, 1.0, 0.0)),
+            (left_shoulder, left_elbow, (0.0, 1.0, 0.0)),
+            (left_elbow, left_hand, (0.0, 1.0, 0.0)),
+            (torso, right_shoulder, (1.0, 0.0, 0.0)),
+            (right_shoulder, right_elbow, (1.0, 0.0, 0.0)),
+            (right_elbow, right_hand, (1.0, 0.0, 0.0)),
+        ]
+        
+        for start, end, color in bones:
+            # 绘制多条线模拟加粗
+            for offset in [0.0, 0.005, -0.005]:
+                self.gym.add_lines(
+                    self.viewer,
+                    self.envs[env_id],
+                    1,
+                    [start[0], start[1] + offset, start[2], 
+                     end[0], end[1] + offset, end[2]],
+                    list(color)
+                )
     
     def _get_noise_scale_vec(self, cfg):
         noise_scale_vec = torch.zeros(1, self.cfg.env.n_proprio, device=self.device)
