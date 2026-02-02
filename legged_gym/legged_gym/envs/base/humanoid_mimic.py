@@ -397,9 +397,9 @@ class HumanoidMimic(HumanoidChar):
             body_pos = self.rigid_body_states[:, self._key_body_ids, 0:3] - self.rigid_body_states[:, 0:1, 0:3]
             tar_body_pos = self._ref_body_pos[:, self._key_body_ids] - self._ref_root_pos[:, None, :] 
             
-            if not self.global_obs:
-                body_pos = convert_to_local_root_body_pos(self.root_states[:, 3:7], body_pos)
-                tar_body_pos = convert_to_local_root_body_pos(self._ref_root_rot, tar_body_pos)
+            # 姿态追踪始终使用本地坐标系比较，避免全局位移误差影响
+            body_pos = convert_to_local_root_body_pos(self.root_states[:, 3:7], body_pos)
+            tar_body_pos = convert_to_local_root_body_pos(self._ref_root_rot, tar_body_pos)
             
             body_pos_diff = tar_body_pos - body_pos # (envs, bodies, 3)
             body_pos_dist = torch.sum(body_pos_diff * body_pos_diff, dim=-1) # (envs, bodies)
