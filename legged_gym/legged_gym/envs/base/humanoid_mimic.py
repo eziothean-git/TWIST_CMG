@@ -168,10 +168,10 @@ class HumanoidMimic(HumanoidChar):
         # CMG returns only key bodies, need to assign to correct indices
         global_body_pos = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
         if getattr(self, '_use_cmg', False):
-            # CMG returns 9 key bodies，按照_key_body_ids_motion的索引映射分配
-            for i, cmg_idx in enumerate(self._key_body_ids_motion):
-                if i < global_body_pos.shape[1]:  # 确保索引有效
-                    self._ref_body_pos[env_ids, self._key_body_ids[i]] = global_body_pos[:, cmg_idx]
+            # CMG输出的关键体顺序与配置一致，直接按顺序分配
+            # global_body_pos[:, i] 对应 _key_body_ids[i] 位置
+            for i in range(min(len(self._key_body_ids), global_body_pos.shape[1])):
+                self._ref_body_pos[env_ids, self._key_body_ids[i]] = global_body_pos[:, i]
         else:
             self._ref_body_pos[env_ids] = global_body_pos
     
@@ -199,10 +199,10 @@ class HumanoidMimic(HumanoidChar):
         # CMG returns only key bodies, need to assign to correct indices
         global_body_pos = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
         if getattr(self, '_use_cmg', False):
-            # CMG returns 9 key bodies，按照_key_body_ids_motion的索引映射分配
-            for i, cmg_idx in enumerate(self._key_body_ids_motion):
-                if i < global_body_pos.shape[1]:  # 确保索引有效
-                    self._ref_body_pos[:, self._key_body_ids[i]] = global_body_pos[:, cmg_idx]
+            # CMG输出的关键体顺序与配置一致，直接按顺序分配
+            # global_body_pos[:, i] 对应 _key_body_ids[i] 位置
+            for i in range(min(len(self._key_body_ids), global_body_pos.shape[1])):
+                self._ref_body_pos[:, self._key_body_ids[i]] = global_body_pos[:, i]
         else:
             self._ref_body_pos[:] = global_body_pos
             
@@ -447,9 +447,12 @@ class HumanoidMimic(HumanoidChar):
                         self.gym.clear_lines(self.viewer)
                         self.draw_key_bodies_actual()
                         self.draw_key_bodies_motion()
+                        # 简化渲染流程，避免冲突
                         self.gym.step_graphics(self.sim)
-                        self.gym.draw_viewer(self.viewer, self.sim, True)
-                        self.gym.sync_frame_time(self.sim)
+                        if not self.gym.query_viewer_has_closed(self.viewer):
+                            self.gym.draw_viewer(self.viewer, self.sim, False)
+                        else:
+                            break
                     time.sleep(0.01)
             except KeyboardInterrupt:
                 cprint("\n[调试] 用户中断，继续训练...", "yellow")
