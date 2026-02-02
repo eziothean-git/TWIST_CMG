@@ -541,14 +541,19 @@ class HumanoidMimic(HumanoidChar):
         motion_end = self.episode_length_buf * self.dt >= self._motion_lib.get_motion_length(self._motion_ids)
         # self.reset_buf |= height_cutoff  # 已禁用
         
-        if self.viewer is None:
-            self.reset_buf |= motion_end
-        
-        self.time_out_buf = self.episode_length_buf > self.max_episode_length
-        if self.viewer is None:
-            self.time_out_buf |= motion_end
-        
-        self.reset_buf |= self.time_out_buf
+        # CMG模式：用motion_end作为正常终止（轨迹按帧索引推进，与episode长度无关）
+        # 传统模式：用timeout作为终止
+        if getattr(self, '_use_cmg', False):
+            # CMG模式：motion_end是正常终止条件，不使用timeout
+            if self.viewer is None:
+                self.reset_buf |= motion_end
+            self.time_out_buf[:] = False  # CMG不使用timeout统计
+        else:
+            # 传统motion库模式：使用timeout
+            self.time_out_buf = self.episode_length_buf > self.max_episode_length
+            if self.viewer is None:
+                self.reset_buf |= motion_end
+            self.reset_buf |= self.time_out_buf
         
         vel_too_large = torch.norm(self.root_states[:, 7:10], dim=-1) > 5.
         self.reset_buf |= vel_too_large
