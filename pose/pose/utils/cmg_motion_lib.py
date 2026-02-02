@@ -92,7 +92,7 @@ class CMGMotionLib:
             num_envs=num_envs,
             dt=dt,
             buffer_frames=100,  # 2s at 50Hz
-            output_dof=23,
+            output_dof=29,  # 使用 29DOF 进行 FK 计算，输出时再裁剪为 23
             vx_range=vx_range,
             vy_range=vy_range,
             yaw_range=yaw_range,
@@ -105,8 +105,17 @@ class CMGMotionLib:
         )
         self._bridge = CMGBridge(cfg=cfg, device=device)
         
-        # FK 计算器
+        # FK 计算器（使用 29DOF URDF）
         self._fk = ForwardKinematics(urdf_path, device)
+        
+        # 29DOF → 23DOF 映射索引（跳过手腕 6 DOF）
+        self._dof_29_to_23_indices = torch.tensor([
+            0, 1, 2, 3, 4, 5,       # 左腿 (6)
+            6, 7, 8, 9, 10, 11,     # 右腿 (6)
+            12, 13, 14,             # 腰部 (3)
+            15, 16, 17, 18,         # 左臂 (4)
+            22, 23, 24, 25,         # 右臂 (4) - 跳过左腕 19-21
+        ], device=device, dtype=torch.long)
         
         # 关键身体部位列表（与 G1 配置一致）
         self._body_link_list = [
@@ -254,18 +263,22 @@ class CMGMotionLib:
         """计算所有环境的当前帧"""
         frame = self._bridge.get_current_frame()
         
-        # 计算 FK
+        # 计算 FK（使用完整的 29DOF）
         key_body_pos = self._fk.compute_body_positions(
             frame.root_pos, frame.root_rot, frame.dof_pos
         )
+        
+        # 裁剪为 23DOF 输出
+        dof_pos_23 = frame.dof_pos[:, self._dof_29_to_23_indices]
+        dof_vel_23 = frame.dof_vel[:, self._dof_29_to_23_indices]
         
         return (
             frame.root_pos,
             frame.root_rot,
             frame.root_vel,
             frame.root_ang_vel,
-            frame.dof_pos,
-            frame.dof_vel,
+            dof_pos_23,
+            dof_vel_23,
             key_body_pos,
         )
     
@@ -273,12 +286,24 @@ class CMGMotionLib:
         """计算指定环境的当前帧"""
         frame = self._bridge.get_current_frame(env_ids)
         
-        # 计算 FK
+        # 计算 FK（使用完整的 29DOF）
         key_body_pos = self._fk.compute_body_positions(
             frame.root_pos, frame.root_rot, frame.dof_pos
         )
         
+        # 裁剪为 23DOF 输出
+        dof_pos_23 = frame.dof_pos[:, self._dof_29_to_23_indices]
+        dof_vel_23 = frame.dof_vel[:, self._dof_29_to_23_indices]
+        
         return (
+            frame.root_pos,
+            frame.root_rot,
+            frame.root_vel,
+            frame.root_ang_vel,
+            dof_pos_23,
+            dof_vel_23,
+            key_body_pos,
+        )
             frame.root_pos,
             frame.root_rot,
             frame.root_vel,
@@ -321,16 +346,20 @@ class CMGMotionLib:
         root_vel = flatten_frame(future_frames.root_vel)
         root_ang_vel = flatten_frame(future_frames.root_ang_vel)
         
-        # 计算 FK
+        # 计算 FK（使用完整的 29DOF）
         key_body_pos = self._fk.compute_body_positions(root_pos, root_rot, dof_pos)
+        
+        # 裁剪为 23DOF 输出
+        dof_pos_23 = dof_pos[:, self._dof_29_to_23_indices]
+        dof_vel_23 = dof_vel[:, self._dof_29_to_23_indices]
         
         return (
             root_pos,
             root_rot,
             root_vel,
             root_ang_vel,
-            dof_pos,
-            dof_vel,
+            dof_pos_23,
+            dof_vel_23,
             key_body_pos,
         )
     

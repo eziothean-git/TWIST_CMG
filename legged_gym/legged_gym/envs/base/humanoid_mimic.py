@@ -80,7 +80,8 @@ class HumanoidMimic(HumanoidChar):
     def _load_motions(self):
         if getattr(self.cfg.motion, 'use_cmg', False):
             from pose.utils.cmg_motion_lib import CMGMotionLib
-            urdf_path = f"{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision_with_fixed_hand.urdf"
+            # 使用 29DOF URDF 进行 FK 计算以匹配 CMG 输出的运动学树
+            urdf_path = f"{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_29dof_simple_collision.urdf"
             self._motion_lib = CMGMotionLib(
                 cmg_model_path=self.cfg.motion.cmg_model_path,
                 cmg_data_path=self.cfg.motion.cmg_data_path,
