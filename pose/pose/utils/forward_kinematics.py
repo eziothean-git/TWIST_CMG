@@ -144,6 +144,9 @@ class ForwardKinematics:
                 # Head position: above torso
                 body_positions[:, i, :] = self._compute_head_pos(dof_pos[:, 12:15])
 
+        # 坐标系修正：CMG/FK坐标系与Isaac Gym坐标系X轴方向相反
+        body_positions[:, :, 0] = -body_positions[:, :, 0]
+
         return body_positions
 
     def _compute_ankle_pos(self, leg_dof: torch.Tensor, side: str) -> torch.Tensor:
