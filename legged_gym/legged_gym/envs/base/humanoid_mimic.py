@@ -571,7 +571,7 @@ class HumanoidMimic(HumanoidChar):
         
         if self._pose_termination:
             # 添加5秒延迟：只有在episode运行5秒后才启用姿态终止
-            pose_termination_warmup_time = 5.0  # 5秒预热时间，给足够时间学习追踪
+            pose_termination_warmup_time = 1.0  # 5秒预热时间，给足够时间学习追踪
             current_time = self.episode_length_buf * self.dt
             pose_termination_enabled = current_time > pose_termination_warmup_time
             
