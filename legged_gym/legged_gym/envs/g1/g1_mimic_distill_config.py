@@ -566,7 +566,7 @@ class G1MimicCMGBaseCfg(G1MimicPrivCfg):
 
         # 离线模式配置
         cmg_offline_mode = True
-        cmg_num_trajectories = 4096
+        cmg_num_trajectories = 2048
 
     class env(G1MimicPrivCfg.env):
         track_root = False
@@ -583,7 +583,7 @@ class G1MimicCMGSlowCfg(G1MimicCMGBaseCfg):
         cmg_dt = 0.02
         motion_curriculum = False
         cmg_vx_range = [0.5, 1.5]
-        cmg_vy_range = [-0.3, 0.3]
+        cmg_vy_range = [-0.1, 0.1]
         cmg_yaw_range = [-0.26, 0.26]
 
 
@@ -597,7 +597,7 @@ class G1MimicCMGMediumCfg(G1MimicCMGBaseCfg):
         cmg_dt = 0.02
         motion_curriculum = False
         cmg_vx_range = [1.5, 2.5]
-        cmg_vy_range = [-0.5, 0.5]
+        cmg_vy_range = [-0.2, 0.2]
         cmg_yaw_range = [-0.26, 0.26]
 
 
@@ -611,7 +611,7 @@ class G1MimicCMGFastCfg(G1MimicCMGBaseCfg):
         cmg_dt = 0.02
         motion_curriculum = False
         cmg_vx_range = [2.5, 3.5]
-        cmg_vy_range = [-0.5, 0.5]
+        cmg_vy_range = [-0.3, 0.3]
         cmg_yaw_range = [-0.26, 0.26]
 
 
@@ -624,7 +624,7 @@ class G1MimicCMGSlowCfgPPO(G1MimicPrivCfgPPO):
         algorithm_class_name = 'PPO'
         runner_class_name = 'OnPolicyRunnerMimic'
         max_iterations = 30_002
-        save_interval = 500
+        save_interval = 250
         experiment_name = 'cmg_slow'
 
 
@@ -636,7 +636,7 @@ class G1MimicCMGMediumCfgPPO(G1MimicPrivCfgPPO):
         algorithm_class_name = 'PPO'
         runner_class_name = 'OnPolicyRunnerMimic'
         max_iterations = 30_002
-        save_interval = 500
+        save_interval = 250
         experiment_name = 'cmg_medium'
 
 
@@ -648,5 +648,5 @@ class G1MimicCMGFastCfgPPO(G1MimicPrivCfgPPO):
         algorithm_class_name = 'PPO'
         runner_class_name = 'OnPolicyRunnerMimic'
         max_iterations = 30_002
-        save_interval = 500
+        save_interval = 250
         experiment_name = 'cmg_fast'
