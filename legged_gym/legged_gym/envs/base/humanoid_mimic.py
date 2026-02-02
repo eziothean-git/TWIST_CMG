@@ -374,10 +374,18 @@ class HumanoidMimic(HumanoidChar):
             import time
             try:
                 while True:
-                    self.render()
+                    # 手动触发可视化
+                    if self.viewer and self.enable_viewer_sync:
+                        self.gym.clear_lines(self.viewer)
+                        self.draw_key_bodies_actual()
+                        self.draw_key_bodies_motion()
+                        self.gym.step_graphics(self.sim)
+                        self.gym.draw_viewer(self.viewer, self.sim, True)
+                        self.gym.sync_frame_time(self.sim)
                     time.sleep(0.01)
             except KeyboardInterrupt:
                 cprint("\n[调试] 用户中断，继续训练...", "yellow")
+                self._freeze_first_frame = False  # 禁用冻结以继续训练
                 self._freeze_first_frame = False  # 禁用冻结以继续训练
         
         return super().step(actions)
