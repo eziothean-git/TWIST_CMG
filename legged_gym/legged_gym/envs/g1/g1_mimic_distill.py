@@ -278,7 +278,8 @@ class G1MimicDistill(HumanoidMimic):
         upper_arm_len = 0.25
         forearm_len = 0.22
         
-        # 计算关节位置（局部坐标，X轴取反以匹配FK修正）
+        # 计算关节位置（局部坐标）
+        # 腿部：X轴取反
         # 左腿
         left_hip_local = pelvis + np.array([0, 0.1, 0])
         left_knee_local = left_hip_local + np.array([-thigh_len * np.sin(ref_dof[0]), 0, -thigh_len * np.cos(ref_dof[0])])
@@ -289,19 +290,19 @@ class G1MimicDistill(HumanoidMimic):
         right_knee_local = right_hip_local + np.array([-thigh_len * np.sin(ref_dof[6]), 0, -thigh_len * np.cos(ref_dof[6])])
         right_ankle_local = right_knee_local + np.array([-shank_len * np.sin(ref_dof[6] + ref_dof[9]), 0, -shank_len * np.cos(ref_dof[6] + ref_dof[9])])
         
-        # 躯干和头
+        # 躯干和头（上半身不取反X）
         torso_local = pelvis + np.array([0, 0, torso_height])
         head_local = torso_local + np.array([0, 0, 0.2])
         
-        # 左臂（X轴取反）
+        # 左臂（上半身不取反X）
         left_shoulder_local = torso_local + np.array([0, 0.2, 0])
-        left_elbow_local = left_shoulder_local + np.array([-upper_arm_len * np.sin(ref_dof[15]), 0, -upper_arm_len * np.cos(ref_dof[15])])
-        left_hand_local = left_elbow_local + np.array([-forearm_len * np.sin(ref_dof[15] + ref_dof[18]), 0, -forearm_len * np.cos(ref_dof[15] + ref_dof[18])])
+        left_elbow_local = left_shoulder_local + np.array([upper_arm_len * np.sin(ref_dof[15]), 0, -upper_arm_len * np.cos(ref_dof[15])])
+        left_hand_local = left_elbow_local + np.array([forearm_len * np.sin(ref_dof[15] + ref_dof[18]), 0, -forearm_len * np.cos(ref_dof[15] + ref_dof[18])])
         
-        # 右臂（X轴取反）
+        # 右臂（上半身不取反X）
         right_shoulder_local = torso_local + np.array([0, -0.2, 0])
-        right_elbow_local = right_shoulder_local + np.array([-upper_arm_len * np.sin(ref_dof[19]), 0, -upper_arm_len * np.cos(ref_dof[19])])
-        right_hand_local = right_elbow_local + np.array([-forearm_len * np.sin(ref_dof[19] + ref_dof[22]), 0, -forearm_len * np.cos(ref_dof[19] + ref_dof[22])])
+        right_elbow_local = right_shoulder_local + np.array([upper_arm_len * np.sin(ref_dof[19]), 0, -upper_arm_len * np.cos(ref_dof[19])])
+        right_hand_local = right_elbow_local + np.array([forearm_len * np.sin(ref_dof[19] + ref_dof[22]), 0, -forearm_len * np.cos(ref_dof[19] + ref_dof[22])])
         
         # 应用yaw旋转
         left_hip = rotate_point(left_hip_local, pelvis)

@@ -144,8 +144,15 @@ class ForwardKinematics:
                 # Head position: above torso
                 body_positions[:, i, :] = self._compute_head_pos(dof_pos[:, 12:15])
 
-        # 坐标系修正：CMG/FK坐标系与Isaac Gym坐标系X轴方向相反
-        body_positions[:, :, 0] = -body_positions[:, :, 0]
+        # 坐标系修正：
+        # 腿部（ankle, knee）: X轴取反
+        # 上半身（hand, elbow, head）: 不取反（相当于额外旋转180度）
+        upper_body_names = {"left_rubber_hand", "right_rubber_hand", 
+                           "left_elbow_link", "right_elbow_link", "head_mocap"}
+        for i, body_name in enumerate(key_bodies):
+            if body_name not in upper_body_names:
+                # 腿部X轴取反
+                body_positions[:, i, 0] = -body_positions[:, i, 0]
 
         return body_positions
 
