@@ -29,7 +29,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
 
         env_spacing = 3.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm
-        episode_length_s = 10
+        episode_length_s = 20  # 延长episode长度以适应CMG长距离行走（10→20秒，1000步@50Hz）
         
         randomize_start_pos = True
         randomize_start_yaw = False

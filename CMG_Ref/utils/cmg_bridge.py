@@ -103,6 +103,7 @@ class CMGBridge:
             # 离线模式：计算完整轨迹长度
             self._total_frames = int((cfg.episode_length_s + cfg.lookahead_s) / cfg.dt)
             self._num_trajectories = cfg.num_trajectories
+            print(f"[CMGBridge] 离线模式轨迹配置: episode={cfg.episode_length_s}s + lookahead={cfg.lookahead_s}s = {self._total_frames}帧 @ {1/cfg.dt:.0f}Hz")
             self._init_offline_buffers()
             self._precompute_offline_trajectories()
             self._release_offline_resources()
@@ -112,6 +113,7 @@ class CMGBridge:
             self._buffer_frames = cfg.buffer_frames
             self._generate_frames = max(self._buffer_frames, min_generate_frames)
             self._reuse_threshold = self._buffer_frames - int(cfg.lookahead_s / cfg.dt)
+            print(f"[CMGBridge] 在线模式缓冲配置: buffer={self._buffer_frames}帧, generate={self._generate_frames}帧 @ {1/cfg.dt:.0f}Hz")
             self._init_online_buffers()
         
         mode_str = "离线" if cfg.offline_mode else "在线"
