@@ -31,7 +31,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         send_timeouts = True # send time out information to the algorithm
         episode_length_s = 10
         
-        randomize_start_pos = False
+        randomize_start_pos = True
         randomize_start_yaw = False
         
         history_encoding = True
@@ -57,7 +57,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         global_obs = True  # 启用全局观测以提高对齐效果
         
         # 调试模式：第一帧冻结以检查对齐
-        freeze_first_frame = True  # 设为 True 时会在第一帧冻结所有环境
+        freeze_first_frame = False  # 调试关闭
     
     class terrain(HumanoidMimicCfg.terrain):
         mesh_type = 'trimesh'
@@ -244,7 +244,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         root_height_diff_threshold = 0.2
 
     class domain_rand:
-        domain_rand_general = False # manually set this, setting from parser does not work;
+        domain_rand_general = True # 手动何时开启域随机化;
         
         randomize_gravity = (True and domain_rand_general)
         gravity_rand_interval_s = 4
