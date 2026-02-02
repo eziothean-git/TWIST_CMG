@@ -416,7 +416,12 @@ class HumanoidChar(LeggedRobot):
         draw_root_pos = self.root_states[:, :3].clone()
         draw_root_pos[:, 2] = self._ref_root_pos[:, 2]
         ref_roll, ref_pitch, _ = euler_from_quaternion(self._ref_root_rot)
-        draw_root_rot = quat_from_euler_xyz(ref_roll, ref_pitch, self.yaw)
+        # 使用当前根姿态的 yaw，避免调试冻结时未初始化
+        if hasattr(self, "yaw"):
+            base_yaw = self.yaw
+        else:
+            _, _, base_yaw = euler_from_quaternion(self.root_states[:, 3:7])
+        draw_root_rot = quat_from_euler_xyz(ref_roll, ref_pitch, base_yaw)
         ref_key_body_pos_global = convert_to_global_root_body_pos(root_pos=draw_root_pos, root_rot=draw_root_rot, body_pos=ref_key_body_pos_local)
         for id in range(self.num_envs):
             for i in range(ref_key_body_pos.shape[1]):
