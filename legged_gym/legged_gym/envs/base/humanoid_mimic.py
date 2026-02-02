@@ -238,6 +238,11 @@ class HumanoidMimic(HumanoidChar):
             else:
                 # 否则直接赋值所有身体位置
                 self._ref_body_pos[:] = global_body_pos
+        
+        # 更新速度指令（用于速度指令追踪奖励）
+        if getattr(self, '_use_cmg', False):
+            cmg_commands = self._motion_lib.get_commands()  # (num_envs, 3) [vx, vy, yaw_rate]
+            self.commands[:, :3] = cmg_commands
             
     def _reset_root_states(self, env_ids, root_vel=None, root_quat=None, root_pos=None, root_ang_vel=None):
         """ Resets ROOT states position and velocities of selected environmments

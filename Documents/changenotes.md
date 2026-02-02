@@ -1,5 +1,46 @@
 # CMG 桥接器模块改进记录
 
+## 最新更新（2026-02-02）
+
+### 奖励权重优化 + 速度指令追踪
+**问题**：800轮训练，30% motion_end，30% timeout，追踪效果不佳。
+
+**原因**：
+1. tracking奖励权重过低（总和4.4 vs feet_air_time 5.0）
+2. **关键遗漏**：没有速度指令追踪奖励！CMG根据速度指令生成轨迹，不追踪指令无法对齐
+
+**解决方案**（2倍tracking提升 + 新增速度指令追踪）：
+```python
+# 轨迹追踪（约2倍提升）
+tracking_keybody_pos = 4.0       # 2.0→4.0
+tracking_root_vel = 2.0          # 1.0→2.0  
+tracking_root_pose = 1.2         # 0.6→1.2
+tracking_joint_dof = 1.2         # 0.6→1.2
+tracking_joint_vel = 0.4         # 0.2→0.4
+
+# 速度指令追踪（新增）
+tracking_lin_vel_exp = 2.0       # xy速度指令
+tracking_ang_vel = 1.0           # yaw角速度指令
+
+# 步态优化
+feet_air_time = 1.0              # 5.0→1.0（保留但降权）
+```
+
+**代码修改**：
+1. `legged_gym/legged_gym/envs/g1/g1_mimic_distill_config.py`：添加速度指令追踪奖励项
+2. `legged_gym/legged_gym/envs/base/humanoid_mimic.py`：`_update_ref_motion()`中更新commands
+   ```python
+   if getattr(self, '_use_cmg', False):
+       self.commands[:, :3] = self._motion_lib.get_commands()
+   ```
+
+**效果预期**：
+- tracking总权重：8.8（轨迹）+ 3.0（速度指令）= 11.8
+- 模型同时学习轨迹追踪和速度指令对齐
+- timeout应下降，追踪精度提升
+
+---
+
 ## 概述
 CMGBridge 模块支持两种工作模式：在线模式和离线模式，用于管理 CMG 自回归模型生成的参考轨迹。
 

@@ -189,29 +189,33 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         regularization_scale_curriculum = False
         regularization_scale_gamma = 0.0001
         class scales:
-            tracking_joint_dof = 0.6
-            tracking_joint_vel = 0.2
-            tracking_root_pose = 0.6
-            tracking_root_vel = 1.0
-            # tracking_keybody_pos = 0.6
-            tracking_keybody_pos = 2.0
+            # === 轨迹追踪奖励（约2倍提升）===
+            tracking_keybody_pos = 4.0       # 关键体位置追踪（2.0→4.0）
+            tracking_root_vel = 2.0          # 根速度追踪（1.0→2.0）
+            tracking_root_pose = 1.2         # 根位置姿态追踪（0.6→1.2）
+            tracking_joint_dof = 1.2         # 关节角度追踪（0.6→1.2）
+            tracking_joint_vel = 0.4         # 关节速度追踪（0.2→0.4）
             
-            # alive = 0.5
-
+            # === 速度指令追踪（CMG关键）===
+            tracking_lin_vel_exp = 2.0       # xy平面线速度指令追踪
+            tracking_ang_vel = 1.0           # yaw角速度指令追踪
+            
+            # === 稳定性约束 ===
             feet_slip = -0.1
             feet_contact_forces = -5e-4      
-            # collision = -10.0
             feet_stumble = -1.25
             
+            # === 安全限制 ===
             dof_pos_limits = -5.0
             dof_torque_limits = -1.0
             
+            # === 平滑性惩罚 ===
             dof_vel = -1e-4
             dof_acc = -5e-8
             action_rate = -0.01
             
-            # feet_height = 5.0
-            feet_air_time = 5.0
+            # === 步态优化 ===
+            feet_air_time = 1.0              # 降低权重（5.0→1.0）
             
             
             ang_vel_xy = -0.01
@@ -374,28 +378,33 @@ class G1MimicStuRLCfg(G1MimicPrivCfg):
         regularization_scale_curriculum = False
         regularization_scale_gamma = 0.0001
         class scales:
-            tracking_joint_dof = 0.6
-            tracking_joint_vel = 0.2
-            tracking_root_pose = 0.6
-            tracking_root_vel = 1.0
-            # tracking_keybody_pos = 0.6
-            tracking_keybody_pos = 2.0
+            # === 轨迹追踪奖励（约2倍提升）===
+            tracking_keybody_pos = 4.0       # 关键体位置追踪（2.0→4.0）
+            tracking_root_vel = 2.0          # 根速度追踪（1.0→2.0）
+            tracking_root_pose = 1.2         # 根位置姿态追踪（0.6→1.2）
+            tracking_joint_dof = 1.2         # 关节角度追踪（0.6→1.2）
+            tracking_joint_vel = 0.4         # 关节速度追踪（0.2→0.4）
             
-            # alive = 0.5
-
-            feet_slip = -0.1 # higher than teacher
+            # === 速度指令追踪（CMG关键）===
+            tracking_lin_vel_exp = 2.0       # xy平面线速度指令追踪
+            tracking_ang_vel = 1.0           # yaw角速度指令追踪
+            
+            # === 稳定性约束 ===
+            feet_slip = -0.1
             feet_contact_forces = -5e-4      
-            # collision = -10.0
             feet_stumble = -1.25
             
+            # === 安全限制 ===
             dof_pos_limits = -5.0
             dof_torque_limits = -1.0
             
+            # === 平滑性惩罚 ===
             dof_vel = -1e-4
             dof_acc = -5e-8
             action_rate = -0.01
             
-            feet_air_time = 5.0
+            # === 步态优化 ===
+            feet_air_time = 1.0              # 降低权重（5.0→1.0）
             
             
             ang_vel_xy = -0.01
