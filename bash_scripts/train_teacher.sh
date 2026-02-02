@@ -21,6 +21,8 @@
 
 #  应当使用的集合：
 #   bash train_teacher.sh TWIST_CMG_V[version] cuda:0 4096 normal "" cmg_medium
+#  debug用：
+#   bash train_teacher.sh TWIST_CMG_DEBUG cuda:0 32 debug "" cmg_high
 set -e
 
 # 激活conda环境
