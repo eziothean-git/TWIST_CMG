@@ -318,6 +318,22 @@ class HumanoidMimic(HumanoidChar):
             self.extras["episode"]['rew_' + key] = torch.mean(self.episode_sums[key][env_ids] * self.reward_scales[key] / motion_len)
             self.episode_sums[key][env_ids] = 0.
         
+        # 诊断：记录episode结束时的指令与实际世界系速度
+        if env_ids.numel() > 0:
+            cmd = self.commands[env_ids]
+            lin_world = self.root_states[env_ids, 7:10]  # 世界系速度
+            ang_world = self.root_states[env_ids, 10:13]  # 世界系角速度
+            lin_err = torch.norm(cmd[:, :2] - lin_world[:, :2], dim=1)
+            yaw_err = torch.abs(cmd[:, 2] - ang_world[:, 2])
+            self.extras["episode"]["cmd_vx_mean"] = torch.mean(cmd[:, 0]).item()
+            self.extras["episode"]["cmd_vy_mean"] = torch.mean(cmd[:, 1]).item()
+            self.extras["episode"]["cmd_yaw_rate_mean"] = torch.mean(cmd[:, 2]).item()
+            self.extras["episode"]["base_vx_mean"] = torch.mean(lin_world[:, 0]).item()
+            self.extras["episode"]["base_vy_mean"] = torch.mean(lin_world[:, 1]).item()
+            self.extras["episode"]["base_yaw_rate_mean"] = torch.mean(ang_world[:, 2]).item()
+            self.extras["episode"]["cmd_lin_err_mean"] = torch.mean(lin_err).item()
+            self.extras["episode"]["cmd_yaw_err_mean"] = torch.mean(yaw_err).item()
+        
         if self.cfg.motion.motion_curriculum:
             self._update_motion_difficulty(env_ids)
         self._reset_ref_motion(env_ids=env_ids, motion_ids=motion_ids)
@@ -827,13 +843,15 @@ class HumanoidMimic(HumanoidChar):
         return torch.exp(-root_vel_scale * (root_vel_err + 0.5 * root_ang_vel_err))
     
     def _reward_tracking_lin_vel_exp(self):
-        """线速度指令追踪（xy平面）"""
-        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
+        """线速度指令追踪（xy平面，世界系）"""
+        # commands 是世界系速度指令，应该与世界系的根速度比较，而非机体系速度
+        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.root_states[:, 7:9]), dim=1)
         return torch.exp(-lin_vel_error / self.cfg.rewards.tracking_sigma)
     
     def _reward_tracking_ang_vel(self):
-        """角速度指令追踪（yaw）"""
-        ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
+        """角速度指令追踪（yaw，世界系z轴角速度）"""
+        # commands[:, 2] 是yaw角速度，应该与世界系的z轴角速度比较
+        ang_vel_error = torch.square(self.commands[:, 2] - self.root_states[:, 12])
         return torch.exp(-ang_vel_error / self.cfg.rewards.tracking_sigma_ang)
     
     
