@@ -251,20 +251,35 @@ class G1MimicDistill(HumanoidMimic):
         ref_dof = self._ref_dof_pos[env_id].cpu().numpy()
         
         # 从四元数提取yaw角（xyzw格式）
-        # 修复：添加π旋转以修正180度偏移
         qx, qy, qz, qw = ref_rot
         yaw = np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
-        yaw += np.pi  # 修复180度偏移
-        cos_yaw = np.cos(yaw)
-        sin_yaw = np.sin(yaw)
         
-        def rotate_point(p, origin):
-            """将点绕origin旋转yaw角度"""
+        # 腿部yaw（添加π修正）
+        yaw_legs = yaw + np.pi
+        cos_yaw_legs = np.cos(yaw_legs)
+        sin_yaw_legs = np.sin(yaw_legs)
+        
+        # 上半身yaw（不添加π）
+        cos_yaw_upper = np.cos(yaw)
+        sin_yaw_upper = np.sin(yaw)
+        
+        def rotate_point_legs(p, origin):
+            """将腿部点绕origin旋转"""
             dx = p[0] - origin[0]
             dy = p[1] - origin[1]
             return np.array([
-                origin[0] + dx * cos_yaw - dy * sin_yaw,
-                origin[1] + dx * sin_yaw + dy * cos_yaw,
+                origin[0] + dx * cos_yaw_legs - dy * sin_yaw_legs,
+                origin[1] + dx * sin_yaw_legs + dy * cos_yaw_legs,
+                p[2]
+            ])
+        
+        def rotate_point_upper(p, origin):
+            """将上半身点绕origin旋转"""
+            dx = p[0] - origin[0]
+            dy = p[1] - origin[1]
+            return np.array([
+                origin[0] + dx * cos_yaw_upper - dy * sin_yaw_upper,
+                origin[1] + dx * sin_yaw_upper + dy * cos_yaw_upper,
                 p[2]
             ])
         
@@ -303,21 +318,21 @@ class G1MimicDistill(HumanoidMimic):
         right_elbow_local = right_shoulder_local + np.array([upper_arm_len * np.sin(ref_dof[19]), 0, -upper_arm_len * np.cos(ref_dof[19])])
         right_hand_local = right_elbow_local + np.array([forearm_len * np.sin(ref_dof[19] + ref_dof[22]), 0, -forearm_len * np.cos(ref_dof[19] + ref_dof[22])])
         
-        # 应用yaw旋转到所有点
-        left_hip = rotate_point(left_hip_local, pelvis)
-        left_knee = rotate_point(left_knee_local, pelvis)
-        left_ankle = rotate_point(left_ankle_local, pelvis)
-        right_hip = rotate_point(right_hip_local, pelvis)
-        right_knee = rotate_point(right_knee_local, pelvis)
-        right_ankle = rotate_point(right_ankle_local, pelvis)
-        torso = rotate_point(torso_local, pelvis)
-        head = rotate_point(head_local, pelvis)
-        left_shoulder = rotate_point(left_shoulder_local, pelvis)
-        left_elbow = rotate_point(left_elbow_local, pelvis)
-        left_hand = rotate_point(left_hand_local, pelvis)
-        right_shoulder = rotate_point(right_shoulder_local, pelvis)
-        right_elbow = rotate_point(right_elbow_local, pelvis)
-        right_hand = rotate_point(right_hand_local, pelvis)
+        # 应用yaw旋转（腿部和上半身使用不同旋转）
+        left_hip = rotate_point_legs(left_hip_local, pelvis)
+        left_knee = rotate_point_legs(left_knee_local, pelvis)
+        left_ankle = rotate_point_legs(left_ankle_local, pelvis)
+        right_hip = rotate_point_legs(right_hip_local, pelvis)
+        right_knee = rotate_point_legs(right_knee_local, pelvis)
+        right_ankle = rotate_point_legs(right_ankle_local, pelvis)
+        torso = rotate_point_upper(torso_local, pelvis)
+        head = rotate_point_upper(head_local, pelvis)
+        left_shoulder = rotate_point_upper(left_shoulder_local, pelvis)
+        left_elbow = rotate_point_upper(left_elbow_local, pelvis)
+        left_hand = rotate_point_upper(left_hand_local, pelvis)
+        right_shoulder = rotate_point_upper(right_shoulder_local, pelvis)
+        right_elbow = rotate_point_upper(right_elbow_local, pelvis)
+        right_hand = rotate_point_upper(right_hand_local, pelvis)
         
         # 使用球体绘制关节位置（更清晰）
         sphere_size = 0.04
