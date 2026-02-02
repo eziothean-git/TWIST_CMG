@@ -60,9 +60,9 @@ class HumanoidMimic(HumanoidChar):
             'motion_end': 0,
             'time_out': 0,
             'vel_too_large': 0,
-            'pose_fail': 0,
+            'pose_fail': 0,  # warmup结束后的pose失败
+            'pose_fail_during_warmup': 0,  # warmup期间的pose失败（应该很少）
             'root_tracking_fail': 0,
-            'pose_warmup_active': 0,  # 预热期间的环境数量
         }
         
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
@@ -289,15 +289,18 @@ class HumanoidMimic(HumanoidChar):
             if 'termination_stats' not in self.extras:
                 self.extras['termination_stats'] = {}
             
+            # 计算终止原因的总数（只计算真正的终止原因）
             total_terminations = sum(self.termination_stats.values())
+            
             if total_terminations > 0:
                 # 计算百分比并存储到extras
                 for reason, count in self.termination_stats.items():
                     ratio = 100.0 * count / total_terminations
                     self.extras['termination_stats'][f'term_{reason}_ratio'] = ratio
-                # 重置统计
-                for key in self.termination_stats:
-                    self.termination_stats[key] = 0
+            
+            # 重置统计
+            for key in self.termination_stats:
+                self.termination_stats[key] = 0
         
         # fill extras
         self.extras["episode"] = {}
@@ -606,11 +609,23 @@ class HumanoidMimic(HumanoidChar):
                 pose_fail |= root_tracking_fail
             self.reset_buf |= pose_fail
             
-            # 遥测：记录pose失败和root追踪失败
-            self._current_termination_reasons['pose_fail'] = pose_fail.sum().item()
-            self._current_termination_reasons['root_tracking_fail'] = root_tracking_fail.sum().item()
-            # 记录预热状态统计
-            self._current_termination_reasons['pose_warmup_active'] = (~pose_termination_enabled).sum().item()
+            # 遥测：分阶段记录终止原因
+            # 在warmup期和正常期分别统计，以观察warmup的效果
+            if pose_termination_enabled.any():
+                # 正常期（warmup结束后）的终止原因
+                pose_fail_normal = pose_fail & pose_termination_enabled
+                self._current_termination_reasons['pose_fail'] = pose_fail_normal.sum().item()
+                self._current_termination_reasons['root_tracking_fail'] = (root_tracking_fail & pose_termination_enabled).sum().item()
+            else:
+                # warmup期间不应该有pose相关的终止
+                self._current_termination_reasons['pose_fail'] = 0.0
+                self._current_termination_reasons['root_tracking_fail'] = 0.0
+            
+            # 记录warmup期间的终止情况（应该很少）
+            warmup_period = ~pose_termination_enabled
+            warmup_terminations = pose_fail & warmup_period
+            if warmup_terminations.any():
+                self._current_termination_reasons['pose_fail_during_warmup'] = warmup_terminations.sum().item()
         
         first_step = self.episode_length_buf == 0
 
