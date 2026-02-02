@@ -242,6 +242,10 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         soft_torque_limit = 0.95
         torque_safety_limit = 0.9
         root_height_diff_threshold = 0.2
+        
+        # 严格的根角度终止条件，防止机器人趴地
+        termination_roll = 0.5  # 约30度，防止侧翻
+        termination_pitch = 0.5  # 约30度，防止前后翻倒
 
     class domain_rand:
         domain_rand_general = True # 手动何时开启域随机化;
