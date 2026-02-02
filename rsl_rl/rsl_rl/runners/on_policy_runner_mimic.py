@@ -321,9 +321,9 @@ class OnPolicyRunnerMimic:
             # wandb_dict['Train/mean_episode_length/time', statistics.mean(locs['lenbuffer']), self.tot_time)
 
         # 遥测：上报终止原因占比
-        if 'termination_stats' in locs:
-            for term_key, term_ratio in locs['termination_stats'].items():
-                wandb_dict[f'Telemetry/{term_key}'] = term_ratio
+        if 'Termination reason' in locs:
+            for term_reason, term_ratio in locs['Termination reason'].items():
+                wandb_dict[f'Termination reason/{term_reason}'] = term_ratio
 
         wandb.log(wandb_dict, step=locs['it'])
 
