@@ -1,6 +1,9 @@
 from isaacgym.torch_utils import *
+from isaacgym import gymapi, gymutil
 
 import torch
+import numpy as np
+import os
 
 from legged_gym.envs.base.humanoid_mimic import HumanoidMimic
 from .g1_mimic_distill_config import G1MimicPrivCfg, G1MimicStuCfg
@@ -8,6 +11,7 @@ from legged_gym.gym_utils.math import *
 from pose.utils import torch_utils
 from legged_gym.envs.base.legged_robot import euler_from_quaternion
 from legged_gym.envs.base.humanoid_char import convert_to_local_root_body_pos, convert_to_global_root_body_pos
+from legged_gym import LEGGED_GYM_ROOT_DIR
 
 def g1_body_from_38_to_52(body_pos_38: torch.Tensor) -> torch.Tensor:
     """
@@ -97,6 +101,8 @@ class G1MimicDistill(HumanoidMimic):
     def __init__(self, cfg: G1MimicPrivCfg, sim_params, physics_engine, sim_device, headless):
         self.cfg = cfg
         self.obs_type = cfg.env.obs_type
+        # debug模式：非headless时启用ghost actor
+        self._enable_ghost_actor = not headless and getattr(cfg.env, 'enable_ghost_actor', True)
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
         self.last_feet_z = 0.05
         self.episode_length = torch.zeros((self.num_envs), device=self.device)
@@ -188,6 +194,13 @@ class G1MimicDistill(HumanoidMimic):
         else:
             return
 
+    def _create_envs(self):
+        """重写以初始化debug可视化"""
+        super()._create_envs()
+        
+        if self._enable_ghost_actor:
+            print(f"[G1MimicDistill] Debug模式：启用参考骨架可视化")
+
     def _get_body_indices(self):
         upper_arm_names = [s for s in self.body_names if self.cfg.asset.upper_arm_name in s]
         lower_arm_names = [s for s in self.body_names if self.cfg.asset.lower_arm_name in s]
@@ -216,6 +229,91 @@ class G1MimicDistill(HumanoidMimic):
         super()._init_buffers()
         self.obs_history_buf = torch.zeros((self.num_envs, self.cfg.env.history_len, self.cfg.env.n_obs_single), device=self.device)
         self.privileged_obs_history_buf = torch.zeros((self.num_envs, self.cfg.env.history_len, self.cfg.env.n_priv_obs_single), device=self.device)
+    
+    def post_physics_step(self):
+        """重写以添加参考骨架绘制"""
+        # 调用父类的post_physics_step
+        result = super().post_physics_step()
+        
+        # 在debug模式下额外绘制参考DOF骨架
+        if self._enable_ghost_actor and self.viewer and self.enable_viewer_sync and self.debug_viz:
+            self._draw_ref_dof_skeleton()
+        
+        return result
+    
+    def _draw_ref_dof_skeleton(self):
+        """使用参考DOF绘制简化骨架（直接从关节角度推断位置）"""
+        env_id = 0
+        
+        # 获取参考位置和旋转
+        ref_pos = self._ref_root_pos[env_id].cpu().numpy()
+        ref_rot = self._ref_root_rot[env_id].cpu().numpy()
+        ref_dof = self._ref_dof_pos[env_id].cpu().numpy()
+        
+        # 简化的骨架长度参数（米）
+        thigh_len = 0.35
+        shank_len = 0.35
+        torso_height = 0.35
+        upper_arm_len = 0.25
+        forearm_len = 0.22
+        
+        # 骨盆位置
+        pelvis = ref_pos.copy()
+        
+        # 计算左腿
+        left_hip = pelvis + [0, 0.1, 0]
+        left_knee = left_hip + [thigh_len * np.sin(ref_dof[0]), 0, -thigh_len * np.cos(ref_dof[0])]
+        left_ankle = left_knee + [shank_len * np.sin(ref_dof[0] + ref_dof[3]), 0, -shank_len * np.cos(ref_dof[0] + ref_dof[3])]
+        
+        # 计算右腿
+        right_hip = pelvis + [0, -0.1, 0]
+        right_knee = right_hip + [thigh_len * np.sin(ref_dof[6]), 0, -thigh_len * np.cos(ref_dof[6])]
+        right_ankle = right_knee + [shank_len * np.sin(ref_dof[6] + ref_dof[9]), 0, -shank_len * np.cos(ref_dof[6] + ref_dof[9])]
+        
+        # 计算躯干
+        torso = pelvis + [0, 0, torso_height]
+        
+        # 计算左臂
+        left_shoulder = torso + [0, 0.2, 0]
+        left_elbow = left_shoulder + [upper_arm_len * np.sin(ref_dof[15]), 0, -upper_arm_len * np.cos(ref_dof[15])]
+        left_hand = left_elbow + [forearm_len * np.sin(ref_dof[15] + ref_dof[18]), 0, -forearm_len * np.cos(ref_dof[15] + ref_dof[18])]
+        
+        # 计算右臂
+        right_shoulder = torso + [0, -0.2, 0]
+        right_elbow = right_shoulder + [upper_arm_len * np.sin(ref_dof[19]), 0, -upper_arm_len * np.cos(ref_dof[19])]
+        right_hand = right_elbow + [forearm_len * np.sin(ref_dof[19] + ref_dof[22]), 0, -forearm_len * np.cos(ref_dof[19] + ref_dof[22])]
+        
+        # 定义要绘制的线段 (start, end) 和颜色
+        lines = [
+            # 躯干 - 白色
+            (pelvis, torso, [1.0, 1.0, 1.0]),
+            # 左腿 - 青色
+            (pelvis, left_hip, [0.0, 1.0, 1.0]),
+            (left_hip, left_knee, [0.0, 1.0, 1.0]),
+            (left_knee, left_ankle, [0.0, 1.0, 1.0]),
+            # 右腿 - 黄色
+            (pelvis, right_hip, [1.0, 1.0, 0.0]),
+            (right_hip, right_knee, [1.0, 1.0, 0.0]),
+            (right_knee, right_ankle, [1.0, 1.0, 0.0]),
+            # 左臂 - 绿色
+            (torso, left_shoulder, [0.0, 1.0, 0.0]),
+            (left_shoulder, left_elbow, [0.0, 1.0, 0.0]),
+            (left_elbow, left_hand, [0.0, 1.0, 0.0]),
+            # 右臂 - 红色
+            (torso, right_shoulder, [1.0, 0.0, 0.0]),
+            (right_shoulder, right_elbow, [1.0, 0.0, 0.0]),
+            (right_elbow, right_hand, [1.0, 0.0, 0.0]),
+        ]
+        
+        # 绘制所有线段
+        for start, end, color in lines:
+            self.gym.add_lines(
+                self.viewer,
+                self.envs[env_id],
+                1,
+                [start[0], start[1], start[2], end[0], end[1], end[2]],
+                color
+            )
     
     def _get_noise_scale_vec(self, cfg):
         noise_scale_vec = torch.zeros(1, self.cfg.env.n_proprio, device=self.device)

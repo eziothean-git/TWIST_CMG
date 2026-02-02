@@ -249,8 +249,8 @@ class CMGBridge:
             
             # 计算根节点状态
             t = frame * self._dt
-            avg_yaw = -yaw_rate * t * 0.5
-            new_yaw = -yaw_rate * t
+            avg_yaw = yaw_rate * t * 0.5
+            new_yaw = yaw_rate * t
             cos_yaw = torch.cos(avg_yaw)
             sin_yaw = torch.sin(avg_yaw)
             
@@ -276,7 +276,7 @@ class CMGBridge:
             # 根节点角速度
             self._pool_root_ang_vel[:, frame, 0] = 0.0
             self._pool_root_ang_vel[:, frame, 1] = 0.0
-            self._pool_root_ang_vel[:, frame, 2] = -yaw_rate
+            self._pool_root_ang_vel[:, frame, 2] = yaw_rate
             
             # CMG 前向推理下一帧
             motion_norm = self._cmg(motion_norm, cmd_norm)
@@ -402,8 +402,8 @@ class CMGBridge:
             
             # 计算根节点状态
             t = (start_frame + frame) * self._dt
-            avg_yaw = self._root_yaw[env_ids] - yaw_rate * t * 0.5
-            new_yaw = self._root_yaw[env_ids] - yaw_rate * t
+            avg_yaw = self._root_yaw[env_ids] + yaw_rate * t * 0.5
+            new_yaw = self._root_yaw[env_ids] + yaw_rate * t
             cos_yaw = torch.cos(avg_yaw)
             sin_yaw = torch.sin(avg_yaw)
             
@@ -429,7 +429,7 @@ class CMGBridge:
             # 根节点角速度
             self._traj_root_ang_vel[env_ids, buf_frame, 0] = 0.0
             self._traj_root_ang_vel[env_ids, buf_frame, 1] = 0.0
-            self._traj_root_ang_vel[env_ids, buf_frame, 2] = -yaw_rate
+            self._traj_root_ang_vel[env_ids, buf_frame, 2] = yaw_rate
             
             # CMG 前向推理下一帧
             motion_norm = self._cmg(motion_norm, cmd_norm)
@@ -639,7 +639,7 @@ class CMGBridge:
                 
                 # 计算续生成的起始时间
                 start_t = start_pos * self._dt
-                avg_yaw_base = self._root_yaw[regen_ids] - yaw_rate * start_t * 0.5
+                avg_yaw_base = self._root_yaw[regen_ids] + yaw_rate * start_t * 0.5
                 
                 # 生成新的轨迹段（覆盖旧数据）
                 for frame in range(gen_frames):
@@ -655,8 +655,8 @@ class CMGBridge:
                     
                     # 计算根节点状态
                     t = (start_pos + frame) * self._dt
-                    avg_yaw = avg_yaw_base - yaw_rate * (t - start_t) * 0.5
-                    new_yaw = self._root_yaw[regen_ids] - yaw_rate * t
+                    avg_yaw = avg_yaw_base + yaw_rate * (t - start_t) * 0.5
+                    new_yaw = self._root_yaw[regen_ids] + yaw_rate * t
                     cos_yaw = torch.cos(avg_yaw)
                     sin_yaw = torch.sin(avg_yaw)
                     
@@ -682,7 +682,7 @@ class CMGBridge:
                     # 根节点角速度
                     self._traj_root_ang_vel[regen_ids, buf_frame, 0] = 0.0
                     self._traj_root_ang_vel[regen_ids, buf_frame, 1] = 0.0
-                    self._traj_root_ang_vel[regen_ids, buf_frame, 2] = -yaw_rate
+                    self._traj_root_ang_vel[regen_ids, buf_frame, 2] = yaw_rate
                     
                     # CMG 前向推理下一帧
                     motion_norm = self._cmg(motion_norm, cmd_norm)

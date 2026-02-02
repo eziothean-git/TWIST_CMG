@@ -58,6 +58,9 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         
         # 调试模式：第一帧冻结以检查对齐
         freeze_first_frame = False  # 调试关闭
+        
+        # Debug可视化：在非headless模式下显示参考骨架
+        enable_ghost_actor = True
     
     class terrain(HumanoidMimicCfg.terrain):
         mesh_type = 'trimesh'

@@ -2,31 +2,32 @@
 
 ## 最新更新（2026-02-02）
 
-### 修复轨迹坐标系问题（yaw角符号反向）
-**问题**：参考轨迹腿部运动翻转180度，明显看得出是"反向"的运动。
+### 添加Debug模式参考骨架可视化
+**问题**：腿部运动轨迹反了，需要可视化参考运动来定位问题。
 
-**根本原因**：yaw角在根节点位置和速度计算中符号错误。标准坐标变换应该取yaw的负值以匹配Isaac Gym的坐标系约定。
+**解决方案**：在debug模式（非headless）下绘制参考轨迹的简化骨架线条。
 
-**修改文件**：`CMG_Ref/utils/cmg_bridge.py`
+**修改文件**：
+1. `g1_mimic_distill.py`：
+   - `_enable_ghost_actor`：根据headless标志自动启用
+   - `_create_envs()`：初始化可视化
+   - `post_physics_step()`：重写以调用骨架绘制
+   - `_draw_ref_dof_skeleton()`：基于参考DOF绘制简化骨架
+     - 左腿（青色）、右腿（黄色）、左臂（绿色）、右臂（红色）、躯干（白色）
 
-**修改位置**：
-1. `_precompute_offline_trajectories()`方法（离线模式）：
-   - 第252行：`avg_yaw = -yaw_rate * t * 0.5`（改为负值）
-   - 第253行：`new_yaw = -yaw_rate * t`（改为负值）
-   - 第280行：`yaw_rate` → `-yaw_rate`（角速度也取负）
+2. `g1_mimic_distill_config.py`：
+   - 添加 `enable_ghost_actor = True` 配置项
 
-2. `_generate_trajectory_segment()`方法（在线模式）：
-   - 第405行：`avg_yaw = self._root_yaw[env_ids] - yaw_rate * t * 0.5`（改为减法）
-   - 第406行：`new_yaw = self._root_yaw[env_ids] - yaw_rate * t`（改为减法）
-   - 第430行：`yaw_rate` → `-yaw_rate`（角速度也取负）
+**使用方法**：
+```bash
+python train.py --task g1_mimic_priv --debug
+```
+在viewer中可以看到：
+- **红色球**：实际机器人关键体位置
+- **绿色球**：参考轨迹关键体位置（由`draw_key_bodies_motion`绘制）
+- **彩色线条**：参考骨架（新增）
 
-3. `step()`方法（缓冲区续生成）：
-   - 第641行：`avg_yaw_base = self._root_yaw[regen_ids] - yaw_rate * start_t * 0.5`（改为减法）
-   - 第656行：`avg_yaw = avg_yaw_base - yaw_rate * (t - start_t) * 0.5`（改为减法）
-   - 第657行：`new_yaw = self._root_yaw[regen_ids] - yaw_rate * t`（改为减法）
-   - 第682行：`yaw_rate` → `-yaw_rate`（角速度也取负）
-
-**效果**：轨迹坐标变换正确，腿部运动方向与速度指令一致，机器人前进而不是后退。
+**效果**：可以直观对比参考轨迹和实际机器人的姿态差异，快速定位问题。
 
 ---
 
