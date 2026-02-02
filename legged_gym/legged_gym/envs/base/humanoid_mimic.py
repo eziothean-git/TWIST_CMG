@@ -550,11 +550,29 @@ class HumanoidMimic(HumanoidChar):
             pose_termination_enabled = current_time > pose_termination_warmup_time
             
             body_pos = self.rigid_body_states[:, self._key_body_ids, 0:3] - self.rigid_body_states[:, 0:1, 0:3]
-            tar_body_pos = self._ref_body_pos[:, self._key_body_ids] - self._ref_root_pos[:, None, :] 
+            
+            # 使用CMG原始输出（蓝色球）作为参考，而不是处理后的绿色球
+            # 这样只追踪CMG输出与实际机器人之间的误差，不会被环境处理的变换影响
+            if hasattr(self, '_cmg_debug_pos') and self._cmg_debug_pos is not None:
+                # 获取CMG原始输出的根位置（用第一个关键体的根位置推估）
+                # CMG输出是全局坐标，需要转换为相对于机器人根的本地坐标
+                tar_body_pos = self._cmg_debug_pos - self._cmg_debug_pos[:, :1, :]  # 相对于第一个关键体
+            else:
+                # 回退到绿色球（环境处理后的参考）
+                tar_body_pos = self._ref_body_pos[:, self._key_body_ids] - self._ref_root_pos[:, None, :] 
             
             # 姿态追踪始终使用本地坐标系比较，避免全局位移误差影响
             body_pos = convert_to_local_root_body_pos(self.root_states[:, 3:7], body_pos)
-            tar_body_pos = convert_to_local_root_body_pos(self._ref_root_rot, tar_body_pos)
+            
+            # 如果使用CMG原始输出，需要转换到本地坐标系
+            if hasattr(self, '_cmg_debug_pos') and self._cmg_debug_pos is not None:
+                # CMG输出已经是全局坐标，先转换为相对于CMG根的坐标
+                cmg_root_pos = self._cmg_debug_pos[:, 0:1, :]  # CMG中心位置（使用第一个关键体作为参考）
+                tar_body_pos_global = self._cmg_debug_pos - cmg_root_pos
+                # 然后转换到本地坐标系（使用CMG的参考旋转）
+                tar_body_pos = convert_to_local_root_body_pos(self._ref_root_rot, tar_body_pos_global)
+            else:
+                tar_body_pos = convert_to_local_root_body_pos(self._ref_root_rot, tar_body_pos)
             
             body_pos_diff = tar_body_pos - body_pos # (envs, bodies, 3)
             body_pos_dist = torch.sum(body_pos_diff * body_pos_diff, dim=-1) # (envs, bodies)
