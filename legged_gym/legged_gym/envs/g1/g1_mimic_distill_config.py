@@ -41,7 +41,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         
         enable_early_termination = True
         pose_termination = True
-        pose_termination_dist = 0.7
+        pose_termination_dist = 1.2  # 放宽阈值，避免过早终止
         rand_reset = True
         track_root = False
      

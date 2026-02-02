@@ -544,8 +544,8 @@ class HumanoidMimic(HumanoidChar):
         }
         
         if self._pose_termination:
-            # 添加2秒延迟：只有在episode运行2秒后才启用姿态终止
-            pose_termination_warmup_time = 2.0  # 2秒预热时间
+            # 添加5秒延迟：只有在episode运行5秒后才启用姿态终止
+            pose_termination_warmup_time = 5.0  # 5秒预热时间，给足够时间学习追踪
             current_time = self.episode_length_buf * self.dt
             pose_termination_enabled = current_time > pose_termination_warmup_time
             
@@ -807,8 +807,16 @@ class HumanoidMimic(HumanoidChar):
             base_yaw_quat = quat_from_euler_xyz(0*self.yaw, 0*self.yaw, self.yaw)
             # key_body_pos = convert_to_local_root_body_pos(self.root_states[:, 3:7], key_body_pos)
             key_body_pos = convert_to_local_root_body_pos(base_yaw_quat, key_body_pos)
-        tar_key_body_pos = self._ref_body_pos[:, self._key_body_ids, :]
-        tar_key_body_pos = tar_key_body_pos - self._ref_root_pos.unsqueeze(1)
+        
+        # 使用CMG原始输出（蓝色球）作为追踪目标
+        if hasattr(self, '_cmg_debug_pos') and self._cmg_debug_pos is not None:
+            # CMG原始输出是全局坐标，需要转换为相对位置
+            tar_key_body_pos = self._cmg_debug_pos - self._ref_root_pos.unsqueeze(1)
+        else:
+            # 回退到绿色球（环境处理后的参考）
+            tar_key_body_pos = self._ref_body_pos[:, self._key_body_ids, :]
+            tar_key_body_pos = tar_key_body_pos - self._ref_root_pos.unsqueeze(1)
+        
         if not self.global_obs:
             _, _, ref_yaw = euler_from_quaternion(self._ref_root_rot)
             ref_yaw_quat = quat_from_euler_xyz(0*ref_yaw, 0*ref_yaw, ref_yaw)
@@ -829,8 +837,16 @@ class HumanoidMimic(HumanoidChar):
             base_yaw_quat = quat_from_euler_xyz(0*self.yaw, 0*self.yaw, self.yaw)
             # key_body_pos = convert_to_local_root_body_pos(self.root_states[:, 3:7], key_body_pos)
             key_body_pos = convert_to_local_root_body_pos(base_yaw_quat, key_body_pos)
-        tar_key_body_pos = self._ref_body_pos[:, self._key_body_ids, :]
-        tar_key_body_pos = tar_key_body_pos - self._ref_root_pos.unsqueeze(1)
+        
+        # 使用CMG原始输出（蓝色球）作为追踪目标
+        if hasattr(self, '_cmg_debug_pos') and self._cmg_debug_pos is not None:
+            # CMG原始输出是全局坐标，需要转换为相对位置
+            tar_key_body_pos = self._cmg_debug_pos - self._ref_root_pos.unsqueeze(1)
+        else:
+            # 回退到绿色球（环境处理后的参考）
+            tar_key_body_pos = self._ref_body_pos[:, self._key_body_ids, :]
+            tar_key_body_pos = tar_key_body_pos - self._ref_root_pos.unsqueeze(1)
+        
         if not self.global_obs:
             _, _, ref_yaw = euler_from_quaternion(self._ref_root_rot)
             ref_yaw_quat = quat_from_euler_xyz(0*ref_yaw, 0*ref_yaw, ref_yaw)
