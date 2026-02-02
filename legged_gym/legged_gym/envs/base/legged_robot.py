@@ -104,6 +104,7 @@ class LeggedRobot(BaseTask):
         self.init_done = True
         self.global_counter = 0
         self.total_env_steps_counter = 0
+        self.learning_iteration = 0
 
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
         # self.post_physics_step()
@@ -270,9 +271,15 @@ class LeggedRobot(BaseTask):
             adds each terms to the episode sums and to the total reward
         """
         self.rew_buf[:] = 0.
+        tracking_old_mix, tracking_cmd_mix = self._get_cmd_tracking_mix()
         for i in range(len(self.reward_functions)):
             name = self.reward_names[i]
             rew = self.reward_functions[i]() * self.reward_scales[name]
+            if tracking_old_mix is not None:
+                if name in self._tracking_group_names:
+                    rew *= tracking_old_mix
+                elif name in self._cmd_tracking_names:
+                    rew *= tracking_cmd_mix
             self.rew_buf += rew
             self.episode_sums[name] += rew
         if self.cfg.rewards.only_positive_rewards:
@@ -721,6 +728,41 @@ class LeggedRobot(BaseTask):
         # reward episode sums
         self.episode_sums = {name: torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
                              for name in self.reward_scales.keys()}
+        self._tracking_group_names = set(getattr(self.cfg.rewards, "trackingGroupNames", []))
+        self._cmd_tracking_names = set(getattr(self.cfg.rewards, "cmdTrackingNames", []))
+        self._tracking_base_scale_sum = 0.0
+        self._cmd_tracking_base_scale_sum = 0.0
+        for name, scale in self.reward_scales.items():
+            if name in self._tracking_group_names:
+                self._tracking_base_scale_sum += float(scale)
+            if name in self._cmd_tracking_names:
+                self._cmd_tracking_base_scale_sum += float(scale)
+
+    def set_learning_iteration(self, iteration: int):
+        """设置训练迭代数，供奖励混合调度使用。"""
+        self.learning_iteration = iteration
+
+    def _get_cmd_tracking_mix(self):
+        """计算命令速度追踪奖励混合系数。"""
+        if not getattr(self.cfg.rewards, "cmdTrackingMixEnable", False):
+            return None, None
+        if self._tracking_base_scale_sum <= 0 or self._cmd_tracking_base_scale_sum <= 0:
+            return None, None
+        start_iter = self.cfg.rewards.cmdTrackingMixStartIter
+        end_iter = self.cfg.rewards.cmdTrackingMixEndIter
+        if end_iter <= start_iter:
+            return None, None
+        if self.learning_iteration <= start_iter:
+            progress = 0.0
+        elif self.learning_iteration >= end_iter:
+            progress = 1.0
+        else:
+            progress = (self.learning_iteration - start_iter) / (end_iter - start_iter)
+        final_ratio = self.cfg.rewards.cmdTrackingFinalRatio
+        cmd_ratio = final_ratio * progress
+        old_ratio = 1.0 - cmd_ratio
+        cmd_mix = (self._tracking_base_scale_sum * cmd_ratio) / self._cmd_tracking_base_scale_sum
+        return old_ratio, cmd_mix
 
     def _create_ground_plane(self):
         """ Adds a ground plane to the simulation, sets friction and restitution based on the cfg.

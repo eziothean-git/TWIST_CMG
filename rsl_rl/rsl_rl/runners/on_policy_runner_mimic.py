@@ -174,6 +174,8 @@ class OnPolicyRunnerMimic:
 
         for it in tqdm(range(self.current_learning_iteration, tot_iter), desc="Training", initial=self.current_learning_iteration, total=tot_iter):
             start = time.time()
+            if hasattr(self.env, "set_learning_iteration"):
+                self.env.set_learning_iteration(it)
             hist_encoding = it % self.dagger_update_freq == 0
             # Rollout
             with torch.inference_mode():

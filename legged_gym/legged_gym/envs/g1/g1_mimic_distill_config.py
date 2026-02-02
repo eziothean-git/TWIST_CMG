@@ -193,6 +193,8 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
             tracking_root_vel = 1.0
             # tracking_keybody_pos = 0.6
             tracking_keybody_pos = 2.0
+            tracking_cmd_vel = 1.0
+            tracking_cmd_vel = 1.0
             
             # alive = 0.5
 
@@ -240,6 +242,30 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         soft_torque_limit = 0.95
         torque_safety_limit = 0.9
         root_height_diff_threshold = 0.2
+        trackingGroupNames = [
+            "tracking_joint_dof",
+            "tracking_joint_vel",
+            "tracking_root_pose",
+            "tracking_root_vel",
+            "tracking_keybody_pos",
+        ]
+        cmdTrackingNames = ["tracking_cmd_vel"]
+        cmdTrackingMixEnable = True
+        cmdTrackingMixStartIter = 500
+        cmdTrackingMixEndIter = 1000
+        cmdTrackingFinalRatio = 0.4
+        trackingGroupNames = [
+            "tracking_joint_dof",
+            "tracking_joint_vel",
+            "tracking_root_pose",
+            "tracking_root_vel",
+            "tracking_keybody_pos",
+        ]
+        cmdTrackingNames = ["tracking_cmd_vel"]
+        cmdTrackingMixEnable = True
+        cmdTrackingMixStartIter = 500
+        cmdTrackingMixEndIter = 1000
+        cmdTrackingFinalRatio = 0.4
 
     class domain_rand:
         domain_rand_general = True # manually set this, setting from parser does not work;

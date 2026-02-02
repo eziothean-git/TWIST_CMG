@@ -228,6 +228,12 @@ class HumanoidCharCfg(BaseConfig):
         max_knee_dist = 0.2
         torque_safety_limit = 1.0
         root_height_diff_threshold = 0.15
+        trackingGroupNames = []
+        cmdTrackingNames = []
+        cmdTrackingMixEnable = False
+        cmdTrackingMixStartIter = 500
+        cmdTrackingMixEndIter = 1000
+        cmdTrackingFinalRatio = 0.4
 
     class normalization:
         class obs_scales:
