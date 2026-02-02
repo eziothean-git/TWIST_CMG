@@ -566,7 +566,7 @@ class G1MimicCMGBaseCfg(G1MimicPrivCfg):
 
         # 离线模式配置
         cmg_offline_mode = True
-        cmg_num_trajectories = 2048
+        cmg_num_trajectories = 4096
 
     class env(G1MimicPrivCfg.env):
         track_root = False
