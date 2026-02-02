@@ -174,9 +174,18 @@ class CMGMotionLib:
         return torch.zeros(motion_ids.shape, device=self._device)
     
     def get_key_body_idx(self, key_body_names: List[str]) -> List[int]:
-        """获取关键身体部位索引"""
-        return [self._body_link_list.index(name) if name in self._body_link_list 
-                else self._fk.get_body_idx(name) for name in key_body_names]
+        """获取关键身体部位索引 - 为了兼容性，返回环境中的关键体ID顺序"""
+        # CMG不需要真正的body idx，关键体顺序在FK计算时已确定
+        # 这里返回顺序索引，表示CMG输出的关键体顺序与环境配置一致
+        body_ids = []
+        for i, name in enumerate(key_body_names):
+            if name in self._body_link_list:
+                # 找到该关键体在CMG输出中的位置
+                cmg_idx = self._body_link_list.index(name)
+                body_ids.append(cmg_idx)
+            else:
+                raise ValueError(f"关键体 {name} 不在CMG支持的关键体列表中: {self._body_link_list}")
+        return body_ids
     
     def get_motion_names(self) -> List[str]:
         """返回运动名称"""

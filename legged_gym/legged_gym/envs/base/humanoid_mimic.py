@@ -168,8 +168,10 @@ class HumanoidMimic(HumanoidChar):
         # CMG returns only key bodies, need to assign to correct indices
         global_body_pos = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
         if getattr(self, '_use_cmg', False):
-            # CMG returns 9 key bodies directly, assign to _key_body_ids positions
-            self._ref_body_pos[env_ids.unsqueeze(-1), self._key_body_ids] = global_body_pos
+            # CMG returns 9 key bodies，按照_key_body_ids_motion的索引映射分配
+            for i, cmg_idx in enumerate(self._key_body_ids_motion):
+                if i < global_body_pos.shape[1]:  # 确保索引有效
+                    self._ref_body_pos[env_ids, self._key_body_ids[i]] = global_body_pos[:, cmg_idx]
         else:
             self._ref_body_pos[env_ids] = global_body_pos
     
@@ -197,8 +199,10 @@ class HumanoidMimic(HumanoidChar):
         # CMG returns only key bodies, need to assign to correct indices
         global_body_pos = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
         if getattr(self, '_use_cmg', False):
-            # CMG returns 9 key bodies directly, assign to _key_body_ids positions
-            self._ref_body_pos[:, self._key_body_ids] = global_body_pos
+            # CMG returns 9 key bodies，按照_key_body_ids_motion的索引映射分配
+            for i, cmg_idx in enumerate(self._key_body_ids_motion):
+                if i < global_body_pos.shape[1]:  # 确保索引有效
+                    self._ref_body_pos[:, self._key_body_ids[i]] = global_body_pos[:, cmg_idx]
         else:
             self._ref_body_pos[:] = global_body_pos
             
