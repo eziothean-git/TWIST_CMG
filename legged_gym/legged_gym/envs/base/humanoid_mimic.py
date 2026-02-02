@@ -33,6 +33,12 @@ class HumanoidMimic(HumanoidChar):
         self._track_root = cfg.env.track_root
         self.global_obs = cfg.env.global_obs
         cprint(f"[HumanoidMimic] global_obs: {self.global_obs}")
+        
+        # 调试模式：冻结第一帧
+        self._freeze_first_frame = getattr(cfg.env, 'freeze_first_frame', False)
+        self._first_frame_frozen = False
+        if self._freeze_first_frame:
+            cprint(f"[HumanoidMimic] 调试模式：第一帧将冻结以检查参考对齐", "yellow")
 
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
         self.last_feet_z = 0.05
@@ -338,6 +344,43 @@ class HumanoidMimic(HumanoidChar):
         
         motion_difficulty_ratio = (self.motion_difficulty - 1) / 8
         self.motion_termination_dist = (self._pose_termination_dist - 0.1) * motion_difficulty_ratio + 0.1 # when motion difficulty is 1, termination dist is 0.1
+    
+    def step(self, actions):
+        """覆盖 step 方法以支持第一帧冻结调试"""
+        if self._freeze_first_frame and not self._first_frame_frozen:
+            self._first_frame_frozen = True
+            cprint("\n" + "="*60, "yellow")
+            cprint("[调试] 第一帧已冻结！检查参考轨迹对齐情况", "yellow")
+            cprint("提示：", "cyan")
+            cprint("  - 红色球体：实际机器人关键体位置", "red")
+            cprint("  - 蓝色球体：CMG 参考关键体位置", "blue")
+            cprint("  - 绿色球体：理想根位置（速度×时间）", "green")
+            cprint("  - 检查红蓝球体是否对齐（姿态匹配）", "cyan")
+            cprint("  - 按 Ctrl+C 结束调试", "yellow")
+            cprint("="*60 + "\n", "yellow")
+            
+            # 计算并打印第一个环境的误差信息
+            if self._pose_termination:
+                body_pos = self.rigid_body_states[0:1, self._key_body_ids, 0:3] - self.rigid_body_states[0:1, 0:1, 0:3]
+                tar_body_pos = self._ref_body_pos[0:1, self._key_body_ids] - self._ref_root_pos[0:1, None, :]
+                body_pos = convert_to_local_root_body_pos(self.root_states[0:1, 3:7], body_pos)
+                tar_body_pos = convert_to_local_root_body_pos(self._ref_root_rot[0:1], tar_body_pos)
+                body_pos_diff = tar_body_pos - body_pos
+                body_pos_dist = torch.sqrt(torch.sum(body_pos_diff * body_pos_diff, dim=-1))
+                max_dist = torch.max(body_pos_dist)
+                cprint(f"[环境0] 最大关键体偏差: {max_dist.item():.4f}m (阈值: {self._pose_termination_dist:.4f}m)", "cyan")
+            
+            # 无限循环直到用户中断
+            import time
+            try:
+                while True:
+                    self.render()
+                    time.sleep(0.01)
+            except KeyboardInterrupt:
+                cprint("\n[调试] 用户中断，继续训练...", "yellow")
+                self._freeze_first_frame = False  # 禁用冻结以继续训练
+        
+        return super().step(actions)
     
     def _post_physics_step_callback(self):
         """ Callback called before computing terminations, rewards, and observations

@@ -55,6 +55,9 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
 
         
         global_obs = True  # 启用全局观测以提高对齐效果
+        
+        # 调试模式：第一帧冻结以检查对齐
+        freeze_first_frame = True  # 设为 True 时会在第一帧冻结所有环境
     
     class terrain(HumanoidMimicCfg.terrain):
         mesh_type = 'trimesh'
