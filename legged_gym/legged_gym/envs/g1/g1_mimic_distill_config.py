@@ -192,16 +192,16 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         regularization_scale_curriculum = False
         regularization_scale_gamma = 0.0001
         class scales:
-            # === 轨迹追踪奖励（提升4倍，解决原地跺脚）===
-            tracking_keybody_pos = 8.0       # 关键体位置追踪（4.0→8.0，翻两倍）
-            tracking_root_vel = 4.0          # 根速度追踪（2.0→4.0，翻倍）
-            tracking_root_pose = 2.4         # 根位置姿态追踪（1.2→2.4，翻倍）
-            tracking_joint_dof = 2.4         # 关节角度追踪（1.2→2.4，翻两倍）
+            # === 轨迹追踪奖励（回退到最初版本，靠配比保证侧重不变）===
+            tracking_keybody_pos = 4.0       # 关键体位置追踪
+            tracking_root_vel = 2.0          # 根线速度追踪
+            tracking_root_pose = 1.2         # 根位置姿态追踪
+            tracking_joint_dof = 1.2         # 关节角度追踪
             tracking_joint_vel = 0.0         # 禁用关节速度追踪（与关键体位置追踪冗余）
             
             # === 速度指令追踪（CMG关键）===
-            tracking_lin_vel_exp = 4.0       # xy平面线速度指令追踪（2.0→4.0，翻倍）
-            tracking_ang_vel = 2.0           # yaw角速度指令追踪（1.0→2.0，翻倍）
+            tracking_lin_vel_exp = 2.0       # xy平面线速度指令追踪
+            tracking_ang_vel = 1.0           # yaw角速度指令追踪
             
             # === 稳定性约束 ===
             feet_slip = -0.1
@@ -253,7 +253,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         # 奖励配比：保持正奖励总量级不变，仅调整“追踪相关 vs 其它项”的侧重
         # ratio=-1表示不调整（只打印现状）；设置为[0,1]可在不改变总量级的情况下改变侧重
         balanceRewardScalesEnable = True
-        balanceRewardTrackingRatio = -1.0
+        balanceRewardTrackingRatio = 0.96
         balanceRewardIncludeCmdTracking = True
         
         # 速度指令追踪混合调度
@@ -402,16 +402,16 @@ class G1MimicStuRLCfg(G1MimicPrivCfg):
         regularization_scale_curriculum = False
         regularization_scale_gamma = 0.0001
         class scales:
-            # === 轨迹追踪奖励（提升4倍，解决原地跺脚）===
-            tracking_keybody_pos = 8.0       # 关键体位置追踪（4.0→8.0，翻两倍）
-            tracking_root_vel = 4.0          # 根速度追踪（2.0→4.0，翻倍）
-            tracking_root_pose = 2.4         # 根位置姿态追踪（1.2→2.4，翻倍）
-            tracking_joint_dof = 2.4         # 关节角度追踪（1.2→2.4，翻两倍）
+            # === 轨迹追踪奖励（回退到最初版本，靠配比保证侧重不变）===
+            tracking_keybody_pos = 4.0       # 关键体位置追踪
+            tracking_root_vel = 2.0          # 根线速度追踪
+            tracking_root_pose = 1.2         # 根位置姿态追踪
+            tracking_joint_dof = 1.2         # 关节角度追踪
             tracking_joint_vel = 0.0         # 禁用关节速度追踪（与关键体位置追踪冗余）
             
             # === 速度指令追踪（CMG关键）===
-            tracking_lin_vel_exp = 4.0       # xy平面线速度指令追踪（2.0→4.0，翻倍）
-            tracking_ang_vel = 2.0           # yaw角速度指令追踪（1.0→2.0，翻倍）
+            tracking_lin_vel_exp = 2.0       # xy平面线速度指令追踪
+            tracking_ang_vel = 1.0           # yaw角速度指令追踪
             
             # === 稳定性约束 ===
             feet_slip = -0.1
