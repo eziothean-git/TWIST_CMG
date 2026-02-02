@@ -320,6 +320,11 @@ class OnPolicyRunnerMimic:
             # wandb_dict['Train/mean_reward/time', statistics.mean(locs['rewbuffer']), self.tot_time)
             # wandb_dict['Train/mean_episode_length/time', statistics.mean(locs['lenbuffer']), self.tot_time)
 
+        # 遥测：上报终止原因占比
+        if 'termination_stats' in locs:
+            for term_key, term_ratio in locs['termination_stats'].items():
+                wandb_dict[f'Telemetry/{term_key}'] = term_ratio
+
         wandb.log(wandb_dict, step=locs['it'])
 
         str = f" \033[1m Learning iteration {locs['it']}/{self.current_learning_iteration + locs['num_learning_iterations']} \033[0m "

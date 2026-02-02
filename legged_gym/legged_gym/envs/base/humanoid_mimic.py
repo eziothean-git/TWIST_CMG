@@ -45,6 +45,19 @@ class HumanoidMimic(HumanoidChar):
         self.motion_names = self._motion_lib.get_motion_names()
         self.deviate_tracking_frames = torch.zeros((self.num_envs), device=self.device, dtype=torch.float)
         self.deviate_vel_tracking_frames = torch.zeros((self.num_envs), device=self.device, dtype=torch.float)
+        
+        # 遥测：终止原因统计
+        self.termination_stats = {
+            'contact_force': 0,
+            'roll_cut': 0,
+            'pitch_cut': 0,
+            'motion_end': 0,
+            'time_out': 0,
+            'vel_too_large': 0,
+            'pose_fail': 0,
+            'root_tracking_fail': 0,
+        }
+        
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
     
     def _get_max_motion_len(self):
@@ -223,6 +236,24 @@ class HumanoidMimic(HumanoidChar):
         if len(env_ids) == 0:
             return
         
+        # 遥测：统计终止原因占比并上报wandb
+        if hasattr(self, '_current_termination_reasons'):
+            for reason, count in self._current_termination_reasons.items():
+                self.termination_stats[reason] += count
+            
+            # 每4096步左右上报一次统计（约1次迭代周期）
+            if len(env_ids) == self.num_envs:
+                total_terminations = sum(self.termination_stats.values())
+                if total_terminations > 0:
+                    # 初始化termination_stats如果还未在extras中
+                    if 'termination_stats' not in self.extras:
+                        self.extras['termination_stats'] = {}
+                    
+                    # 计算百分比并存储到extras
+                    for reason, count in self.termination_stats.items():
+                        ratio = 100.0 * count / total_terminations
+                        self.extras['termination_stats'][f'term_{reason}_ratio'] = ratio
+        
         # fill extras
         self.extras["episode"] = {}
         for key in self.episode_sums.keys():
@@ -351,6 +382,16 @@ class HumanoidMimic(HumanoidChar):
         vel_too_large = torch.norm(self.root_states[:, 7:10], dim=-1) > 5.
         self.reset_buf |= vel_too_large
         
+        # 遥测：记录各终止原因
+        self._current_termination_reasons = {
+            'contact_force': contact_force_termination.sum().item(),
+            'roll_cut': roll_cut.sum().item(),
+            'pitch_cut': pitch_cut.sum().item(),
+            'motion_end': motion_end.sum().item(),
+            'time_out': self.time_out_buf.sum().item(),
+            'vel_too_large': vel_too_large.sum().item(),
+        }
+        
         if self._pose_termination:
             body_pos = self.rigid_body_states[:, self._key_body_ids, 0:3] - self.rigid_body_states[:, 0:1, 0:3]
             tar_body_pos = self._ref_body_pos[:, self._key_body_ids] - self._ref_root_pos[:, None, :] 
@@ -372,13 +413,18 @@ class HumanoidMimic(HumanoidChar):
             
             # pose_fail = body_pos_dist > self.motion_termination_dist[self._motion_ids] ** 2
             
+            root_tracking_fail = torch.zeros_like(pose_fail)
             if self._track_root:
                 root_pos_diff = self._ref_root_pos - self.root_states[:, 0:3]
                 root_pos_dist = torch.sum(root_pos_diff * root_pos_diff, dim=-1)
-                root_pos_fail = root_pos_dist > self._root_tracking_termination_dist ** 2
-                root_pos_fail = root_pos_fail.squeeze(-1)
-                pose_fail |= root_pos_fail
+                root_tracking_fail = root_pos_dist > self._root_tracking_termination_dist ** 2
+                root_tracking_fail = root_tracking_fail.squeeze(-1)
+                pose_fail |= root_tracking_fail
             self.reset_buf |= pose_fail
+            
+            # 遥测：记录pose失败和root追踪失败
+            self._current_termination_reasons['pose_fail'] = pose_fail.sum().item()
+            self._current_termination_reasons['root_tracking_fail'] = root_tracking_fail.sum().item()
         
         first_step = self.episode_length_buf == 0
 
