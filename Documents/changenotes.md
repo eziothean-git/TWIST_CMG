@@ -2,6 +2,34 @@
 
 ## 最新更新（2026-02-02）
 
+### 修复轨迹坐标系问题（yaw角符号反向）
+**问题**：参考轨迹腿部运动翻转180度，明显看得出是"反向"的运动。
+
+**根本原因**：yaw角在根节点位置和速度计算中符号错误。标准坐标变换应该取yaw的负值以匹配Isaac Gym的坐标系约定。
+
+**修改文件**：`CMG_Ref/utils/cmg_bridge.py`
+
+**修改位置**：
+1. `_precompute_offline_trajectories()`方法（离线模式）：
+   - 第252行：`avg_yaw = -yaw_rate * t * 0.5`（改为负值）
+   - 第253行：`new_yaw = -yaw_rate * t`（改为负值）
+   - 第280行：`yaw_rate` → `-yaw_rate`（角速度也取负）
+
+2. `_generate_trajectory_segment()`方法（在线模式）：
+   - 第405行：`avg_yaw = self._root_yaw[env_ids] - yaw_rate * t * 0.5`（改为减法）
+   - 第406行：`new_yaw = self._root_yaw[env_ids] - yaw_rate * t`（改为减法）
+   - 第430行：`yaw_rate` → `-yaw_rate`（角速度也取负）
+
+3. `step()`方法（缓冲区续生成）：
+   - 第641行：`avg_yaw_base = self._root_yaw[regen_ids] - yaw_rate * start_t * 0.5`（改为减法）
+   - 第656行：`avg_yaw = avg_yaw_base - yaw_rate * (t - start_t) * 0.5`（改为减法）
+   - 第657行：`new_yaw = self._root_yaw[regen_ids] - yaw_rate * t`（改为减法）
+   - 第682行：`yaw_rate` → `-yaw_rate`（角速度也取负）
+
+**效果**：轨迹坐标变换正确，腿部运动方向与速度指令一致，机器人前进而不是后退。
+
+---
+
 ### 添加根高度终止条件（防止趴地）
 **问题**：训练中机器人趴在地上，roll/pitch终止不足以防止这种行为。
 
