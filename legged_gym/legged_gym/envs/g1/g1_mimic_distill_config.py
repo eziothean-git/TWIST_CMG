@@ -189,16 +189,16 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         regularization_scale_curriculum = False
         regularization_scale_gamma = 0.0001
         class scales:
-            # === 轨迹追踪奖励（约2倍提升）===
-            tracking_keybody_pos = 4.0       # 关键体位置追踪（2.0→4.0）
-            tracking_root_vel = 2.0          # 根速度追踪（1.0→2.0）
-            tracking_root_pose = 1.2         # 根位置姿态追踪（0.6→1.2）
-            tracking_joint_dof = 1.2         # 关节角度追踪（0.6→1.2）
-            tracking_joint_vel = 0.4         # 关节速度追踪（0.2→0.4）
+            # === 轨迹追踪奖励（提升4倍，解决原地跺脚）===
+            tracking_keybody_pos = 8.0       # 关键体位置追踪（4.0→8.0，翻两倍）
+            tracking_root_vel = 4.0          # 根速度追踪（2.0→4.0，翻倍）
+            tracking_root_pose = 2.4         # 根位置姿态追踪（1.2→2.4，翻倍）
+            tracking_joint_dof = 2.4         # 关节角度追踪（1.2→2.4，翻两倍）
+            tracking_joint_vel = 0.8         # 关节速度追踪（0.4→0.8，翻倍）
             
             # === 速度指令追踪（CMG关键）===
-            tracking_lin_vel_exp = 2.0       # xy平面线速度指令追踪
-            tracking_ang_vel = 1.0           # yaw角速度指令追踪
+            tracking_lin_vel_exp = 4.0       # xy平面线速度指令追踪（2.0→4.0，翻倍）
+            tracking_ang_vel = 2.0           # yaw角速度指令追踪（1.0→2.0，翻倍）
             
             # === 稳定性约束 ===
             feet_slip = -0.1
@@ -393,16 +393,16 @@ class G1MimicStuRLCfg(G1MimicPrivCfg):
         regularization_scale_curriculum = False
         regularization_scale_gamma = 0.0001
         class scales:
-            # === 轨迹追踪奖励（约2倍提升）===
-            tracking_keybody_pos = 4.0       # 关键体位置追踪（2.0→4.0）
-            tracking_root_vel = 2.0          # 根速度追踪（1.0→2.0）
-            tracking_root_pose = 1.2         # 根位置姿态追踪（0.6→1.2）
-            tracking_joint_dof = 1.2         # 关节角度追踪（0.6→1.2）
-            tracking_joint_vel = 0.4         # 关节速度追踪（0.2→0.4）
+            # === 轨迹追踪奖励（提升4倍，解决原地跺脚）===
+            tracking_keybody_pos = 8.0       # 关键体位置追踪（4.0→8.0，翻两倍）
+            tracking_root_vel = 4.0          # 根速度追踪（2.0→4.0，翻倍）
+            tracking_root_pose = 2.4         # 根位置姿态追踪（1.2→2.4，翻倍）
+            tracking_joint_dof = 2.4         # 关节角度追踪（1.2→2.4，翻两倍）
+            tracking_joint_vel = 0.8         # 关节速度追踪（0.4→0.8，翻倍）
             
             # === 速度指令追踪（CMG关键）===
-            tracking_lin_vel_exp = 2.0       # xy平面线速度指令追踪
-            tracking_ang_vel = 1.0           # yaw角速度指令追踪
+            tracking_lin_vel_exp = 4.0       # xy平面线速度指令追踪（2.0→4.0，翻倍）
+            tracking_ang_vel = 2.0           # yaw角速度指令追踪（1.0→2.0，翻倍）
             
             # === 稳定性约束 ===
             feet_slip = -0.1
