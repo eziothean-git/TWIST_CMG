@@ -62,6 +62,7 @@ class HumanoidMimic(HumanoidChar):
             'vel_too_large': 0,
             'pose_fail': 0,
             'root_tracking_fail': 0,
+            'pose_warmup_active': 0,  # 预热期间的环境数量
         }
         
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
