@@ -414,7 +414,8 @@ class HumanoidChar(LeggedRobot):
         ref_key_body_pos = self._ref_body_pos[:, self._key_body_ids, :3] - self._ref_root_pos[:, None, :]
         ref_key_body_pos_local = convert_to_local_root_body_pos(self._ref_root_rot, ref_key_body_pos)
         draw_root_pos = self.root_states[:, :3].clone()
-        draw_root_pos[:, 2] = self._ref_root_pos[:, 2]
+        # 修正：使用实际机器人的根高度，而不是固定参考高度
+        draw_root_pos[:, 2] = self.root_states[:, 2]  # 使用实际高度
         ref_roll, ref_pitch, _ = euler_from_quaternion(self._ref_root_rot)
         # 使用当前根姿态的 yaw，避免调试冻结时未初始化
         if hasattr(self, "yaw"):
@@ -446,7 +447,14 @@ class HumanoidChar(LeggedRobot):
             # color = (0, 1, 1)
             color = (0, 1, 0)
             geom = gymutil.WireframeSphereGeometry(sphere_size, 32, 32, None, color=color)
-            ref_key_body_pos = self._ref_body_pos[:, self._key_body_ids, :3]        
+            ref_key_body_pos = self._ref_body_pos[:, self._key_body_ids, :3].clone()
+            # 修正高度：使用实际机器人的根高度
+            for id in range(self.num_envs):
+                actual_root_height = self.root_states[id, 2]
+                ref_root_height = self._ref_root_pos[id, 2]
+                height_offset = actual_root_height - ref_root_height
+                ref_key_body_pos[id, :, 2] += height_offset
+            
             for id in range(self.num_envs):
                 for i in range(ref_key_body_pos.shape[1]):
                     pose = gymapi.Transform(gymapi.Vec3(ref_key_body_pos[id, i, 0], ref_key_body_pos[id, i, 1], ref_key_body_pos[id, i, 2]), r=None)
@@ -456,14 +464,20 @@ class HumanoidChar(LeggedRobot):
         if hasattr(self, '_cmg_debug_pos') and self._cmg_debug_pos is not None:
             color_blue = (0, 0, 1)  # 蓝色
             geom_blue = gymutil.WireframeSphereGeometry(sphere_size * 0.8, 32, 32, None, color=color_blue)
-            # 使用CMG原始输出位置（全局坐标）
+            # 使用CMG原始输出位置（全局坐标），但调整高度匹配实际机器人
+            cmg_debug_pos_adjusted = self._cmg_debug_pos.clone()
             for id in range(min(1, self.num_envs)):  # 只画第一个环境
-                for i in range(self._cmg_debug_pos.shape[1]):
+                actual_root_height = self.root_states[id, 2]
+                ref_root_height = self._ref_root_pos[id, 2] 
+                height_offset = actual_root_height - ref_root_height
+                cmg_debug_pos_adjusted[id, :, 2] += height_offset
+                
+                for i in range(cmg_debug_pos_adjusted.shape[1]):
                     pose = gymapi.Transform(
                         gymapi.Vec3(
-                            self._cmg_debug_pos[id, i, 0],
-                            self._cmg_debug_pos[id, i, 1], 
-                            self._cmg_debug_pos[id, i, 2]
+                            cmg_debug_pos_adjusted[id, i, 0],
+                            cmg_debug_pos_adjusted[id, i, 1], 
+                            cmg_debug_pos_adjusted[id, i, 2]
                         ), 
                         r=None
                     )
