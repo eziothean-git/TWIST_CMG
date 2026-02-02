@@ -169,9 +169,12 @@ class HumanoidMimic(HumanoidChar):
         # CMG returns only key bodies, need to assign to correct indices
         global_body_pos = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
         
-        # 调试：保存CMG原始位置用于蓝色球可视化
-        if self._freeze_first_frame and 0 in env_ids:
+        # 始终保存CMG原始位置，用于奖励计算和终止判断
+        if getattr(self, '_use_cmg', False) and 0 in env_ids:
             self._cmg_debug_pos = global_body_pos.clone()
+        
+        # 调试输出
+        if self._freeze_first_frame and 0 in env_ids:
             cprint("\n[调试] 强制更新参考轨迹...", "cyan")
         
         if getattr(self, '_use_cmg', False):
@@ -213,9 +216,12 @@ class HumanoidMimic(HumanoidChar):
         # CMG returns only key bodies, need to assign to correct indices
         global_body_pos = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
         
-        # 调试：保存CMG原始位置用于蓝色球可视化
-        if self._freeze_first_frame:
+        # 始终保存CMG原始位置，用于奖励计算和终止判断
+        if getattr(self, '_use_cmg', False):
             self._cmg_debug_pos = global_body_pos.clone()
+        
+        # 调试输出
+        if self._freeze_first_frame:
             cprint("\n[调试] 强制更新参考轨迹...", "cyan")
         
         if getattr(self, '_use_cmg', False):
