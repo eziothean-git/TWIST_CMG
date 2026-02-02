@@ -737,6 +737,17 @@ class LeggedRobot(BaseTask):
                 self._tracking_base_scale_sum += float(scale)
             if name in self._cmd_tracking_names:
                 self._cmd_tracking_base_scale_sum += float(scale)
+        
+        # 打印混合调度配置
+        if getattr(self.cfg.rewards, "cmdTrackingMixEnable", False):
+            print(f"\n[奖励混合调度] 已启用")
+            print(f"  轨迹追踪组: {self._tracking_group_names}")
+            print(f"  速度指令组: {self._cmd_tracking_names}")
+            print(f"  轨迹追踪总权重: {self._tracking_base_scale_sum:.2f}")
+            print(f"  速度指令总权重: {self._cmd_tracking_base_scale_sum:.2f}")
+            print(f"  开始轮次: {self.cfg.rewards.cmdTrackingMixStartIter}")
+            print(f"  结束轮次: {self.cfg.rewards.cmdTrackingMixEndIter}")
+            print(f"  最终速度指令比例: {self.cfg.rewards.cmdTrackingFinalRatio}\n")
 
     def set_learning_iteration(self, iteration: int):
         """设置训练迭代数，供奖励混合调度使用。"""
@@ -762,6 +773,13 @@ class LeggedRobot(BaseTask):
         cmd_ratio = final_ratio * progress
         old_ratio = 1.0 - cmd_ratio
         cmd_mix = (self._tracking_base_scale_sum * cmd_ratio) / self._cmd_tracking_base_scale_sum
+        
+        # 调试信息（每100轮打印一次）
+        if self.learning_iteration % 100 == 0 and hasattr(self, 'num_envs'):
+            print(f"[Mix调度] iter={self.learning_iteration}, progress={progress:.3f}, "
+                  f"old_ratio={old_ratio:.3f}, cmd_ratio={cmd_ratio:.3f}, "
+                  f"old_mix={old_ratio:.3f}, cmd_mix={cmd_mix:.3f}")
+        
         return old_ratio, cmd_mix
 
     def _create_ground_plane(self):
