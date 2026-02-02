@@ -559,7 +559,7 @@ class G1MimicCMGBaseCfg(G1MimicPrivCfg):
         # 速度范围（子类可覆盖）
         cmg_vx_range = [0.5, 1.5]
         cmg_vy_range = [-0.3, 0.3]
-        cmg_yaw_range = [-0.5, 0.5]
+        cmg_yaw_range = [-0.26, 0.26]
 
         # 禁用动作课程
         motion_curriculum = False
@@ -584,7 +584,7 @@ class G1MimicCMGSlowCfg(G1MimicCMGBaseCfg):
         motion_curriculum = False
         cmg_vx_range = [0.5, 1.5]
         cmg_vy_range = [-0.3, 0.3]
-        cmg_yaw_range = [-0.5, 0.5]
+        cmg_yaw_range = [-0.26, 0.26]
 
 
 class G1MimicCMGMediumCfg(G1MimicCMGBaseCfg):
@@ -598,7 +598,7 @@ class G1MimicCMGMediumCfg(G1MimicCMGBaseCfg):
         motion_curriculum = False
         cmg_vx_range = [1.5, 2.5]
         cmg_vy_range = [-0.5, 0.5]
-        cmg_yaw_range = [-0.8, 0.8]
+        cmg_yaw_range = [-0.26, 0.26]
 
 
 class G1MimicCMGFastCfg(G1MimicCMGBaseCfg):
@@ -612,7 +612,7 @@ class G1MimicCMGFastCfg(G1MimicCMGBaseCfg):
         motion_curriculum = False
         cmg_vx_range = [2.5, 3.5]
         cmg_vy_range = [-0.5, 0.5]
-        cmg_yaw_range = [-1.0, 1.0]
+        cmg_yaw_range = [-0.26, 0.26]
 
 
 # PPO configurations for CMG environments

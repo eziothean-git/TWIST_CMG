@@ -274,7 +274,7 @@ class HumanoidCharCfg(BaseConfig):
         class ranges:
             lin_vel_x = [-0.3, 1.5] # min max [m/s]
             lin_vel_y = [-0.3, 0.3]
-            ang_vel_yaw = [-0.6, 0.6]    # min max [rad/s]
+            ang_vel_yaw = [-0.26, 0.26]    # min max [rad/s]
 
     class sim:
         dt =  0.005
@@ -311,7 +311,7 @@ class HumanoidCharCfg(BaseConfig):
         cmg_dt = 0.02  # CMG operates at 50 Hz
         cmg_vx_range = [0.5, 1.5]  # Forward velocity range (m/s)
         cmg_vy_range = [-0.3, 0.3]  # Lateral velocity range (m/s)
-        cmg_yaw_range = [-0.5, 0.5]  # Yaw rate range (rad/s)
+        cmg_yaw_range = [-0.26, 0.26]  # Yaw rate range (rad/s) 15deg/s max
 
 class HumanoidCharCfgPPO(BaseConfig):
     seed = 1
