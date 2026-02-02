@@ -237,127 +237,63 @@ class G1MimicDistill(HumanoidMimic):
         
         # 在debug模式下额外绘制参考DOF骨架
         if self._enable_ghost_actor and self.viewer and self.enable_viewer_sync and self.debug_viz:
-            self._draw_ref_dof_skeleton()
+            self._draw_ref_body_skeleton()
         
         return result
     
-    def _draw_ref_dof_skeleton(self):
-        """使用参考DOF绘制简化骨架，应用根节点旋转"""
+    def _draw_ref_body_skeleton(self):
+        """使用_ref_body_pos（青色球体位置）绘制骨架，验证追踪信号是否正确"""
         env_id = 0
         
-        # 获取参考位置和旋转
-        ref_pos = self._ref_root_pos[env_id].cpu().numpy()
-        ref_rot = self._ref_root_rot[env_id].cpu().numpy()  # xyzw格式
-        ref_dof = self._ref_dof_pos[env_id].cpu().numpy()
+        # 获取参考关键体位置（这是实际用于追踪的数据）
+        # key_bodies顺序: left_hand, right_hand, left_ankle, right_ankle, 
+        #                 left_knee, right_knee, left_elbow, right_elbow, head
+        ref_body_pos = self._ref_body_pos[env_id, self._key_body_ids, :3].cpu().numpy()
+        ref_root_pos = self._ref_root_pos[env_id].cpu().numpy()
         
-        # 获取机器人实际位置，将参考骨架绘制在机器人旁边便于对比
-        robot_pos = self.root_states[env_id, :3].cpu().numpy()
-        # 使用机器人XY位置 + 参考Z高度，添加Y方向偏移以并排显示
-        pelvis = np.array([robot_pos[0], robot_pos[1] + 0.5, ref_pos[2]])
+        # 提取各关键点位置
+        left_hand = ref_body_pos[0]
+        right_hand = ref_body_pos[1]
+        left_ankle = ref_body_pos[2]
+        right_ankle = ref_body_pos[3]
+        left_knee = ref_body_pos[4]
+        right_knee = ref_body_pos[5]
+        left_elbow = ref_body_pos[6]
+        right_elbow = ref_body_pos[7]
+        head = ref_body_pos[8]
         
-        # 从四元数提取yaw角（xyzw格式）
-        qx, qy, qz, qw = ref_rot
-        yaw = np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
-        cos_yaw = np.cos(yaw)
-        sin_yaw = np.sin(yaw)
+        # 推算其他位置
+        pelvis = ref_root_pos.copy()
         
-        def rotate_point(p, origin):
-            """将点绕origin旋转yaw角"""
-            dx = p[0] - origin[0]
-            dy = p[1] - origin[1]
-            return np.array([
-                origin[0] + dx * cos_yaw - dy * sin_yaw,
-                origin[1] + dx * sin_yaw + dy * cos_yaw,
-                p[2]
-            ])
+        # 躯干位置（头和骨盆之间）
+        torso = np.array([pelvis[0], pelvis[1], pelvis[2] + 0.35])
         
-        # 简化的骨架长度参数（米）
-        thigh_len = 0.35
-        shank_len = 0.35
-        torso_height = 0.35
-        upper_arm_len = 0.25
-        forearm_len = 0.22
+        # 髋关节（骨盆左右偏移）
+        left_hip = pelvis + np.array([0, 0.1, 0])
+        right_hip = pelvis + np.array([0, -0.1, 0])
         
-        # 计算关节位置（局部坐标）
-        # 腿部：X轴取反
-        # 左腿
-        left_hip_local = pelvis + np.array([0, 0.1, 0])
-        left_knee_local = left_hip_local + np.array([-thigh_len * np.sin(ref_dof[0]), 0, -thigh_len * np.cos(ref_dof[0])])
-        left_ankle_local = left_knee_local + np.array([-shank_len * np.sin(ref_dof[0] + ref_dof[3]), 0, -shank_len * np.cos(ref_dof[0] + ref_dof[3])])
+        # 肩膀（从手肘和躯干推算）
+        left_shoulder = np.array([torso[0], left_elbow[1], torso[2]])
+        right_shoulder = np.array([torso[0], right_elbow[1], torso[2]])
         
-        # 右腿
-        right_hip_local = pelvis + np.array([0, -0.1, 0])
-        right_knee_local = right_hip_local + np.array([-thigh_len * np.sin(ref_dof[6]), 0, -thigh_len * np.cos(ref_dof[6])])
-        right_ankle_local = right_knee_local + np.array([-shank_len * np.sin(ref_dof[6] + ref_dof[9]), 0, -shank_len * np.cos(ref_dof[6] + ref_dof[9])])
-        
-        # 躯干和头（上半身不取反X）
-        torso_local = pelvis + np.array([0, 0, torso_height])
-        head_local = torso_local + np.array([0, 0, 0.2])
-        
-        # 左臂（上半身不取反X）
-        left_shoulder_local = torso_local + np.array([0, 0.2, 0])
-        left_elbow_local = left_shoulder_local + np.array([upper_arm_len * np.sin(ref_dof[15]), 0, -upper_arm_len * np.cos(ref_dof[15])])
-        left_hand_local = left_elbow_local + np.array([forearm_len * np.sin(ref_dof[15] + ref_dof[18]), 0, -forearm_len * np.cos(ref_dof[15] + ref_dof[18])])
-        
-        # 右臂（上半身不取反X）
-        right_shoulder_local = torso_local + np.array([0, -0.2, 0])
-        right_elbow_local = right_shoulder_local + np.array([upper_arm_len * np.sin(ref_dof[19]), 0, -upper_arm_len * np.cos(ref_dof[19])])
-        right_hand_local = right_elbow_local + np.array([forearm_len * np.sin(ref_dof[19] + ref_dof[22]), 0, -forearm_len * np.cos(ref_dof[19] + ref_dof[22])])
-        
-        # 应用yaw旋转
-        left_hip = rotate_point(left_hip_local, pelvis)
-        left_knee = rotate_point(left_knee_local, pelvis)
-        left_ankle = rotate_point(left_ankle_local, pelvis)
-        right_hip = rotate_point(right_hip_local, pelvis)
-        right_knee = rotate_point(right_knee_local, pelvis)
-        right_ankle = rotate_point(right_ankle_local, pelvis)
-        torso = rotate_point(torso_local, pelvis)
-        head = rotate_point(head_local, pelvis)
-        left_shoulder = rotate_point(left_shoulder_local, pelvis)
-        left_elbow = rotate_point(left_elbow_local, pelvis)
-        left_hand = rotate_point(left_hand_local, pelvis)
-        right_shoulder = rotate_point(right_shoulder_local, pelvis)
-        right_elbow = rotate_point(right_elbow_local, pelvis)
-        right_hand = rotate_point(right_hand_local, pelvis)
-        
-        # 使用球体绘制关节位置（更清晰）
-        sphere_size = 0.04
-        joints = [
-            (pelvis, (1.0, 1.0, 1.0)),      # 骨盆-白
-            (torso, (1.0, 1.0, 1.0)),       # 躯干-白
-            (head, (1.0, 0.5, 0.0)),        # 头-橙
-            (left_hip, (0.0, 1.0, 1.0)),    # 左髋-青
-            (left_knee, (0.0, 1.0, 1.0)),   # 左膝-青
-            (left_ankle, (0.0, 1.0, 1.0)),  # 左踝-青
-            (right_hip, (1.0, 1.0, 0.0)),   # 右髋-黄
-            (right_knee, (1.0, 1.0, 0.0)),  # 右膝-黄
-            (right_ankle, (1.0, 1.0, 0.0)), # 右踝-黄
-            (left_shoulder, (0.0, 1.0, 0.0)),  # 左肩-绿
-            (left_elbow, (0.0, 1.0, 0.0)),     # 左肘-绿
-            (left_hand, (0.0, 1.0, 0.0)),      # 左手-绿
-            (right_shoulder, (1.0, 0.0, 0.0)), # 右肩-红
-            (right_elbow, (1.0, 0.0, 0.0)),    # 右肘-红
-            (right_hand, (1.0, 0.0, 0.0)),     # 右手-红
-        ]
-        
-        for pos, color in joints:
-            sphere_geom = gymutil.WireframeSphereGeometry(sphere_size, 8, 8, None, color=color)
-            sphere_pose = gymapi.Transform(gymapi.Vec3(pos[0], pos[1], pos[2]), r=None)
-            gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[env_id], sphere_pose)
-        
-        # 绘制骨骼连接线（加粗效果：多条平行线）
+        # 绘制骨骼连接线（白色线条连接青色关键点）
         bones = [
+            # 躯干
             (pelvis, torso, (1.0, 1.0, 1.0)),
-            (torso, head, (1.0, 0.5, 0.0)),
+            (torso, head, (1.0, 1.0, 1.0)),
+            # 左腿
             (pelvis, left_hip, (0.0, 1.0, 1.0)),
             (left_hip, left_knee, (0.0, 1.0, 1.0)),
             (left_knee, left_ankle, (0.0, 1.0, 1.0)),
+            # 右腿
             (pelvis, right_hip, (1.0, 1.0, 0.0)),
             (right_hip, right_knee, (1.0, 1.0, 0.0)),
             (right_knee, right_ankle, (1.0, 1.0, 0.0)),
+            # 左臂
             (torso, left_shoulder, (0.0, 1.0, 0.0)),
             (left_shoulder, left_elbow, (0.0, 1.0, 0.0)),
             (left_elbow, left_hand, (0.0, 1.0, 0.0)),
+            # 右臂
             (torso, right_shoulder, (1.0, 0.0, 0.0)),
             (right_shoulder, right_elbow, (1.0, 0.0, 0.0)),
             (right_elbow, right_hand, (1.0, 0.0, 0.0)),
