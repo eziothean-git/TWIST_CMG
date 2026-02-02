@@ -54,8 +54,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         
 
         
-        global_obs = False
-        # global_obs = True
+        global_obs = True
     
     class terrain(HumanoidMimicCfg.terrain):
         mesh_type = 'trimesh'

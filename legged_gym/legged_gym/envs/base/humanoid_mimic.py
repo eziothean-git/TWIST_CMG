@@ -79,6 +79,7 @@ class HumanoidMimic(HumanoidChar):
                 vx_range=tuple(self.cfg.motion.cmg_vx_range),
                 vy_range=tuple(self.cfg.motion.cmg_vy_range),
                 yaw_range=tuple(self.cfg.motion.cmg_yaw_range),
+                root_height=self.base_init_state[2],
                 offline_mode=getattr(self.cfg.motion, 'cmg_offline_mode', True),
                 num_trajectories=getattr(self.cfg.motion, 'cmg_num_trajectories', 2048),
             )
@@ -512,7 +513,7 @@ class HumanoidMimic(HumanoidChar):
     
     def _reward_tracking_root_pose(self):
         if self.global_obs:
-            root_pos_diff = self._ref_root_pos - self.root_states[:, 0:3]
+            root_pos_diff = self._ref_root_pos[:, 0:2] - self.root_states[:, 0:2]
         else:
             root_pos_diff = self._ref_root_pos[:, 2:3] - self.root_states[:, 2:3]
 
