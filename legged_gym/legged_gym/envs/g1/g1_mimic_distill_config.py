@@ -261,9 +261,10 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         cmdTrackingMixEndIter = 1000    # 1000轮达到最终比例
         cmdTrackingFinalRatio = 0.4     # 最终40%权重给速度指令追踪
         
-        # 严格的根角度终止条件，防止机器人趴地
-        termination_roll = 0.5  # 约30度，防止侧翻
-        termination_pitch = 0.5  # 约30度，防止前后翻倒
+        # 终止条件
+        termination_height_min = 0.5     # 根高度低于此值终止（防止趴地）
+        termination_roll = 0.5           # 约30度，防止侧翻
+        termination_pitch = 0.5          # 约30度，防止前后翻倒
 
     class domain_rand:
         domain_rand_general = True # 手动何时开启域随机化;
@@ -463,6 +464,11 @@ class G1MimicStuRLCfg(G1MimicPrivCfg):
         cmdTrackingMixStartIter = 500
         cmdTrackingMixEndIter = 1000
         cmdTrackingFinalRatio = 0.4
+        
+        # 终止条件
+        termination_height_min = 0.5
+        termination_roll = 0.5
+        termination_pitch = 0.5
 
 class G1MimicPrivCfgPPO(HumanoidMimicCfgPPO):
     seed = 1

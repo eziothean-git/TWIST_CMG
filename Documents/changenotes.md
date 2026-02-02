@@ -2,6 +2,27 @@
 
 ## 最新更新（2026-02-02）
 
+### 添加根高度终止条件（防止趴地）
+**问题**：训练中机器人趴在地上，roll/pitch终止不足以防止这种行为。
+
+**解决方案**：
+```python
+# 添加绝对高度终止
+termination_height_min = 0.5  # 根高度低于0.5m立即终止
+```
+
+**修改文件**：
+1. `humanoid_mimic.py`：
+   - `check_termination()`中添加`height_too_low`检查
+   - 遥测统计中添加`height_too_low`计数
+   
+2. `g1_mimic_distill_config.py`：
+   - 教师+学生配置都添加`termination_height_min = 0.5`
+
+**效果**：强制机器人保持直立姿态，配合roll/pitch终止形成完整的姿态约束。
+
+---
+
 ### 奖励权重优化 + 动态混合调度（整合方案）
 **问题**：800轮训练，30% motion_end，30% timeout，追踪效果不佳。
 

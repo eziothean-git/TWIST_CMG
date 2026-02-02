@@ -55,6 +55,7 @@ class HumanoidMimic(HumanoidChar):
         # 遥测：终止原因统计
         self.termination_stats = {
             'contact_force': 0,
+            'height_too_low': 0,
             'roll_cut': 0,
             'pitch_cut': 0,
             'motion_end': 0,
@@ -525,9 +526,14 @@ class HumanoidMimic(HumanoidChar):
         contact_force_termination = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
         self.reset_buf = contact_force_termination
         
-        # 禁用height_cutoff：离线模式的理想位移需要逐步学习追踪，不应作为终止条件
+        # 禁用相对高度差：离线模式的理想位移需要逐步学习追踪，不应作为终止条件
         # height_cutoff = torch.abs(self.root_states[:, 2] - self._ref_root_pos[:, 2]) > self.cfg.rewards.root_height_diff_threshold
 
+        # 添加绝对高度终止：防止机器人趴地
+        min_height = getattr(self.cfg.rewards, 'termination_height_min', 0.5)
+        height_too_low = self.root_states[:, 2] < min_height
+        self.reset_buf |= height_too_low
+        
         roll_cut = torch.abs(self.roll) > self.cfg.rewards.termination_roll
         pitch_cut = torch.abs(self.pitch) > self.cfg.rewards.termination_pitch
         self.reset_buf |= roll_cut
@@ -550,6 +556,7 @@ class HumanoidMimic(HumanoidChar):
         # 遥测：记录各终止原因
         self._current_termination_reasons = {
             'contact_force': contact_force_termination.sum().item(),
+            'height_too_low': height_too_low.sum().item(),
             'roll_cut': roll_cut.sum().item(),
             'pitch_cut': pitch_cut.sum().item(),
             'motion_end': motion_end.sum().item(),
