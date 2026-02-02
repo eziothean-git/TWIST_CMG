@@ -194,7 +194,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
             tracking_root_vel = 4.0          # 根速度追踪（2.0→4.0，翻倍）
             tracking_root_pose = 2.4         # 根位置姿态追踪（1.2→2.4，翻倍）
             tracking_joint_dof = 2.4         # 关节角度追踪（1.2→2.4，翻两倍）
-            tracking_joint_vel = 0.8         # 关节速度追踪（0.4→0.8，翻倍）
+            tracking_joint_vel = 0.0         # 禁用关节速度追踪（与关键体位置追踪冗余）
             
             # === 速度指令追踪（CMG关键）===
             tracking_lin_vel_exp = 4.0       # xy平面线速度指令追踪（2.0→4.0，翻倍）
@@ -398,7 +398,7 @@ class G1MimicStuRLCfg(G1MimicPrivCfg):
             tracking_root_vel = 4.0          # 根速度追踪（2.0→4.0，翻倍）
             tracking_root_pose = 2.4         # 根位置姿态追踪（1.2→2.4，翻倍）
             tracking_joint_dof = 2.4         # 关节角度追踪（1.2→2.4，翻两倍）
-            tracking_joint_vel = 0.8         # 关节速度追踪（0.4→0.8，翻倍）
+            tracking_joint_vel = 0.0         # 禁用关节速度追踪（与关键体位置追踪冗余）
             
             # === 速度指令追踪（CMG关键）===
             tracking_lin_vel_exp = 4.0       # xy平面线速度指令追踪（2.0→4.0，翻倍）

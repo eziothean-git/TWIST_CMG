@@ -311,8 +311,11 @@ class HumanoidMimic(HumanoidChar):
         # fill extras
         self.extras["episode"] = {}
         for key in self.episode_sums.keys():
-            self.extras["episode"]['metric_' + key] = torch.mean(self.episode_sums[key][env_ids] / self._motion_lib.get_motion_length(self._motion_ids[env_ids]))
-            self.extras["episode"]['rew_' + key] = torch.mean(self.episode_sums[key][env_ids] * self.reward_scales[key] / self._motion_lib.get_motion_length(self._motion_ids[env_ids]))
+            # metric_*：用于监控的“同尺度指标”，避免dof_acc等原始量级过大导致W&B数值爆炸
+            motion_len = self._motion_lib.get_motion_length(self._motion_ids[env_ids])
+            scale = float(abs(self.reward_scales[key]))
+            self.extras["episode"]['metric_' + key] = torch.mean(self.episode_sums[key][env_ids] * scale / motion_len)
+            self.extras["episode"]['rew_' + key] = torch.mean(self.episode_sums[key][env_ids] * self.reward_scales[key] / motion_len)
             self.episode_sums[key][env_ids] = 0.
         
         if self.cfg.motion.motion_curriculum:
