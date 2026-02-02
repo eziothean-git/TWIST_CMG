@@ -292,7 +292,6 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         motion_file = f"{LEGGED_GYM_ROOT_DIR}/motion_data_configs/twist_dataset.yaml"
         
         reset_consec_frames = 30
-        cmg_root_height = 1.0
     
 
 class G1MimicStuCfg(G1MimicPrivCfg):
@@ -524,6 +523,9 @@ class G1MimicCMGBaseCfg(G1MimicPrivCfg):
         use_cmg = True
         cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/runs/cmg_20260123_194851/cmg_final.pt"
         cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/dataloader/cmg_training_data.pt"
+
+        # 参考root高度与出生高度同步
+        cmgRootHeight = 1.0
 
         # CMG 运行频率 50Hz
         cmg_dt = 0.02
