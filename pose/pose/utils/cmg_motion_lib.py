@@ -304,14 +304,6 @@ class CMGMotionLib:
             dof_vel_23,
             key_body_pos,
         )
-            frame.root_pos,
-            frame.root_rot,
-            frame.root_vel,
-            frame.root_ang_vel,
-            frame.dof_pos,
-            frame.dof_vel,
-            key_body_pos,
-        )
     
     def _calc_tiled_frame(self, motion_times: torch.Tensor) -> Tuple:
         """
