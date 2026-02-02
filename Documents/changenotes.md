@@ -587,3 +587,26 @@ bash train_teacher.sh TWIST_CMG_V1 cuda:0 4096 normal "" cmg_medium
 # 支持 8192 环境（轨迹池会复用）
 bash train_teacher.sh TWIST_CMG_V1 cuda:0 8192 normal "" cmg_medium
 ```
+
+### 帧数计算澄清
+
+**配置参数**:
+- CMG 时间步: 0.02 秒 (50Hz CMG 生成频率)
+- 物理模拟: 0.002 秒 (500Hz 物理步)
+- Episode 长度: 10 秒
+- 前瞻长度: 2 秒
+
+**轨迹帧数计算**:
+```
+总 CMG 帧数 = (episode_length_s + lookahead_s) / cmg_dt
+           = (10 + 2) / 0.02
+           = 600 帧
+```
+
+**对应物理时间**:
+- 10 秒 episode × 50Hz CMG = 500 帧 @CMG
+- 2 秒前瞻 × 50Hz CMG = 100 帧 @CMG
+- 物理模拟: 600 CMG帧 × (0.02/0.002) = 6000 物理步
+
+**注**: CMG 模型按 0.02s 时间步训练，保持此参数以确保模型性能。
+

@@ -79,7 +79,6 @@ class HumanoidMimic(HumanoidChar):
                 vx_range=tuple(self.cfg.motion.cmg_vx_range),
                 vy_range=tuple(self.cfg.motion.cmg_vy_range),
                 yaw_range=tuple(self.cfg.motion.cmg_yaw_range),
-                root_height=getattr(self.cfg.motion, 'cmgRootHeight', self.base_init_state[2]),
                 offline_mode=getattr(self.cfg.motion, 'cmg_offline_mode', True),
                 num_trajectories=getattr(self.cfg.motion, 'cmg_num_trajectories', 2048),
             )
@@ -558,14 +557,6 @@ class HumanoidMimic(HumanoidChar):
         
         # return torch.exp(-root_vel_scale * (root_vel_err + 0.1 * root_ang_vel_err))
         return torch.exp(-root_vel_scale * (root_vel_err + 0.5 * root_ang_vel_err))
-
-    def _reward_tracking_cmd_vel(self):
-        """命令速度追踪奖励。"""
-        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
-        ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
-        return torch.exp(-lin_vel_error / self.cfg.rewards.tracking_sigma) * torch.exp(
-            -ang_vel_error / self.cfg.rewards.tracking_sigma_ang
-        )
     
     
     def _error_tracking_root_vel(self):

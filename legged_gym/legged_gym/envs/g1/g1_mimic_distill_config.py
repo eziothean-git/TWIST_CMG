@@ -193,8 +193,6 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
             tracking_root_vel = 1.0
             # tracking_keybody_pos = 0.6
             tracking_keybody_pos = 2.0
-            tracking_cmd_vel = 1.0
-            tracking_cmd_vel = 1.0
             
             # alive = 0.5
 
@@ -242,30 +240,6 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         soft_torque_limit = 0.95
         torque_safety_limit = 0.9
         root_height_diff_threshold = 0.2
-        trackingGroupNames = [
-            "tracking_joint_dof",
-            "tracking_joint_vel",
-            "tracking_root_pose",
-            "tracking_root_vel",
-            "tracking_keybody_pos",
-        ]
-        cmdTrackingNames = ["tracking_cmd_vel"]
-        cmdTrackingMixEnable = True
-        cmdTrackingMixStartIter = 500
-        cmdTrackingMixEndIter = 1000
-        cmdTrackingFinalRatio = 0.4
-        trackingGroupNames = [
-            "tracking_joint_dof",
-            "tracking_joint_vel",
-            "tracking_root_pose",
-            "tracking_root_vel",
-            "tracking_keybody_pos",
-        ]
-        cmdTrackingNames = ["tracking_cmd_vel"]
-        cmdTrackingMixEnable = True
-        cmdTrackingMixStartIter = 500
-        cmdTrackingMixEndIter = 1000
-        cmdTrackingFinalRatio = 0.4
 
     class domain_rand:
         domain_rand_general = True # manually set this, setting from parser does not work;
@@ -550,16 +524,13 @@ class G1MimicCMGBaseCfg(G1MimicPrivCfg):
         cmg_model_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/runs/cmg_20260123_194851/cmg_final.pt"
         cmg_data_path = f"{LEGGED_GYM_ROOT_DIR}/../CMG_Ref/dataloader/cmg_training_data.pt"
 
-        # 参考root高度与出生高度同步
-        cmgRootHeight = 1.0
-
         # CMG 运行频率 50Hz
         cmg_dt = 0.02
 
         # 速度范围（子类可覆盖）
         cmg_vx_range = [0.5, 1.5]
         cmg_vy_range = [-0.3, 0.3]
-        cmg_yaw_range = [-0.26, 0.26]
+        cmg_yaw_range = [-0.5, 0.5]
 
         # 禁用动作课程
         motion_curriculum = False
@@ -583,8 +554,8 @@ class G1MimicCMGSlowCfg(G1MimicCMGBaseCfg):
         cmg_dt = 0.02
         motion_curriculum = False
         cmg_vx_range = [0.5, 1.5]
-        cmg_vy_range = [-0.1, 0.1]
-        cmg_yaw_range = [-0.26, 0.26]
+        cmg_vy_range = [-0.3, 0.3]
+        cmg_yaw_range = [-0.5, 0.5]
 
 
 class G1MimicCMGMediumCfg(G1MimicCMGBaseCfg):
@@ -597,8 +568,8 @@ class G1MimicCMGMediumCfg(G1MimicCMGBaseCfg):
         cmg_dt = 0.02
         motion_curriculum = False
         cmg_vx_range = [1.5, 2.5]
-        cmg_vy_range = [-0.2, 0.2]
-        cmg_yaw_range = [-0.26, 0.26]
+        cmg_vy_range = [-0.5, 0.5]
+        cmg_yaw_range = [-0.8, 0.8]
 
 
 class G1MimicCMGFastCfg(G1MimicCMGBaseCfg):
@@ -611,8 +582,8 @@ class G1MimicCMGFastCfg(G1MimicCMGBaseCfg):
         cmg_dt = 0.02
         motion_curriculum = False
         cmg_vx_range = [2.5, 3.5]
-        cmg_vy_range = [-0.3, 0.3]
-        cmg_yaw_range = [-0.26, 0.26]
+        cmg_vy_range = [-0.5, 0.5]
+        cmg_yaw_range = [-1.0, 1.0]
 
 
 # PPO configurations for CMG environments
@@ -624,7 +595,7 @@ class G1MimicCMGSlowCfgPPO(G1MimicPrivCfgPPO):
         algorithm_class_name = 'PPO'
         runner_class_name = 'OnPolicyRunnerMimic'
         max_iterations = 30_002
-        save_interval = 250
+        save_interval = 500
         experiment_name = 'cmg_slow'
 
 
@@ -636,7 +607,7 @@ class G1MimicCMGMediumCfgPPO(G1MimicPrivCfgPPO):
         algorithm_class_name = 'PPO'
         runner_class_name = 'OnPolicyRunnerMimic'
         max_iterations = 30_002
-        save_interval = 250
+        save_interval = 500
         experiment_name = 'cmg_medium'
 
 
@@ -648,5 +619,5 @@ class G1MimicCMGFastCfgPPO(G1MimicPrivCfgPPO):
         algorithm_class_name = 'PPO'
         runner_class_name = 'OnPolicyRunnerMimic'
         max_iterations = 30_002
-        save_interval = 250
+        save_interval = 500
         experiment_name = 'cmg_fast'
