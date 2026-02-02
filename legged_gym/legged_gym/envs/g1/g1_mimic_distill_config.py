@@ -54,8 +54,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         
 
         
-        global_obs = False
-        # global_obs = True
+        global_obs = True  # 启用全局观测以提高对齐效果
     
     class terrain(HumanoidMimicCfg.terrain):
         mesh_type = 'trimesh'
@@ -526,6 +525,9 @@ class G1MimicCMGBaseCfg(G1MimicPrivCfg):
 
         # CMG 运行频率 50Hz
         cmg_dt = 0.02
+        
+        # 参考root高度与出生高度同步（init_state.pos[2]=1.0）
+        cmg_root_height = 1.0
 
         # 速度范围（子类可覆盖）
         cmg_vx_range = [0.5, 1.5]

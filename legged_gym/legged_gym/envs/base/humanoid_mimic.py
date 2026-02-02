@@ -79,6 +79,7 @@ class HumanoidMimic(HumanoidChar):
                 vx_range=tuple(self.cfg.motion.cmg_vx_range),
                 vy_range=tuple(self.cfg.motion.cmg_vy_range),
                 yaw_range=tuple(self.cfg.motion.cmg_yaw_range),
+                root_height=getattr(self.cfg.motion, 'cmg_root_height', self.base_init_state[2]),
                 offline_mode=getattr(self.cfg.motion, 'cmg_offline_mode', True),
                 num_trajectories=getattr(self.cfg.motion, 'cmg_num_trajectories', 2048),
             )
@@ -328,15 +329,15 @@ class HumanoidMimic(HumanoidChar):
         contact_force_termination = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
         self.reset_buf = contact_force_termination
         
-        # height_cutoff = self.root_states[:, 2] < self.cfg.rewards.termination_height
-        height_cutoff = torch.abs(self.root_states[:, 2] - self._ref_root_pos[:, 2]) > self.cfg.rewards.root_height_diff_threshold
+        # 禁用height_cutoff：离线模式的理想位移需要逐步学习追踪，不应作为终止条件
+        # height_cutoff = torch.abs(self.root_states[:, 2] - self._ref_root_pos[:, 2]) > self.cfg.rewards.root_height_diff_threshold
 
         roll_cut = torch.abs(self.roll) > self.cfg.rewards.termination_roll
         pitch_cut = torch.abs(self.pitch) > self.cfg.rewards.termination_pitch
         self.reset_buf |= roll_cut
         self.reset_buf |= pitch_cut
         motion_end = self.episode_length_buf * self.dt >= self._motion_lib.get_motion_length(self._motion_ids)
-        self.reset_buf |= height_cutoff
+        # self.reset_buf |= height_cutoff  # 已禁用
         
         if self.viewer is None:
             self.reset_buf |= motion_end
