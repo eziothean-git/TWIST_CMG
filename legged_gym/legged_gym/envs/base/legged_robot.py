@@ -715,6 +715,56 @@ class LeggedRobot(BaseTask):
                 self.reward_scales.pop(key) 
             else:
                 self.reward_scales[key] *= self.dt
+
+        # 可选：保持正奖励总量级不变，仅调整“追踪组 vs 其它项”的侧重
+        # 目的：避免单纯放大追踪奖励导致return尺度突变，进而critic loss压不住
+        if getattr(self.cfg.rewards, "balanceRewardScalesEnable", False):
+            trackingNames = set(getattr(self.cfg.rewards, "trackingGroupNames", []))
+            if getattr(self.cfg.rewards, "balanceRewardIncludeCmdTracking", True):
+                trackingNames |= set(getattr(self.cfg.rewards, "cmdTrackingNames", []))
+
+            posScaleSum = 0.0
+            trackingPosScaleSum = 0.0
+            for name, scale in self.reward_scales.items():
+                if name == "termination":
+                    continue
+                if scale > 0:
+                    posScaleSum += float(scale)
+                    if name in trackingNames:
+                        trackingPosScaleSum += float(scale)
+
+            otherPosScaleSum = posScaleSum - trackingPosScaleSum
+            targetRatio = float(getattr(self.cfg.rewards, "balanceRewardTrackingRatio", -1.0))
+
+            # targetRatio < 0 表示不改配比（只打印现状，便于调参）
+            if posScaleSum > 0 and trackingPosScaleSum > 0 and otherPosScaleSum > 0 and targetRatio >= 0:
+                targetRatio = max(0.0, min(1.0, targetRatio))
+                targetTracking = posScaleSum * targetRatio
+                targetOther = posScaleSum - targetTracking
+                trackingMul = targetTracking / trackingPosScaleSum
+                otherMul = targetOther / otherPosScaleSum
+
+                for name in list(self.reward_scales.keys()):
+                    if name == "termination":
+                        continue
+                    if self.reward_scales[name] > 0:
+                        if name in trackingNames:
+                            self.reward_scales[name] *= trackingMul
+                        else:
+                            self.reward_scales[name] *= otherMul
+
+                print(
+                    f"[奖励配比] 启用: pos_sum保持={posScaleSum:.3f}, "
+                    f"tracking_ratio={targetRatio:.2f}, "
+                    f"tracking_mul={trackingMul:.3f}, other_mul={otherMul:.3f}"
+                )
+            else:
+                if posScaleSum > 0:
+                    curRatio = trackingPosScaleSum / posScaleSum if posScaleSum > 0 else 0.0
+                    print(
+                        f"[奖励配比] 未调整: pos_sum={posScaleSum:.3f}, "
+                        f"tracking_pos_sum={trackingPosScaleSum:.3f}, cur_ratio={curRatio:.2f}"
+                    )
         # prepare list of functions
         self.reward_functions = []
         self.reward_names = []

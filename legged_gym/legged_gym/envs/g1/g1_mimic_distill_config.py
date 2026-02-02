@@ -249,6 +249,12 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         soft_torque_limit = 0.95
         torque_safety_limit = 0.9
         root_height_diff_threshold = 0.2
+
+        # 奖励配比：保持正奖励总量级不变，仅调整“追踪相关 vs 其它项”的侧重
+        # ratio=-1表示不调整（只打印现状）；设置为[0,1]可在不改变总量级的情况下改变侧重
+        balanceRewardScalesEnable = True
+        balanceRewardTrackingRatio = -1.0
+        balanceRewardIncludeCmdTracking = True
         
         # 速度指令追踪混合调度
         trackingGroupNames = [
