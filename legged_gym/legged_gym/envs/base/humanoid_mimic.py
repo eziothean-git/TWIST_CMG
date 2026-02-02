@@ -167,13 +167,26 @@ class HumanoidMimic(HumanoidChar):
 
         # CMG returns only key bodies, need to assign to correct indices
         global_body_pos = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
+        
+        # 调试：保存CMG原始位置用于蓝色球可视化
+        if self._freeze_first_frame and 0 in env_ids:
+            self._cmg_debug_pos = global_body_pos.clone()
+            cprint("\n[调试] 强制更新参考轨迹...", "cyan")
+        
         if getattr(self, '_use_cmg', False):
             # CMG输出的关键体顺序与配置一致，直接按顺序分配
             # global_body_pos[:, i] 对应 _key_body_ids[i] 位置
             for i in range(min(len(self._key_body_ids), global_body_pos.shape[1])):
                 self._ref_body_pos[env_ids, self._key_body_ids[i]] = global_body_pos[:, i]
         else:
-            self._ref_body_pos[env_ids] = global_body_pos
+            # 非CMG情况下，假设返回的是所有身体位置
+            if global_body_pos.shape[1] == len(self._key_body_ids):
+                # 如果只有关键体位置，按顺序分配
+                for i in range(len(self._key_body_ids)):
+                    self._ref_body_pos[env_ids, self._key_body_ids[i]] = global_body_pos[:, i]
+            else:
+                # 否则直接赋值所有身体位置
+                self._ref_body_pos[env_ids] = global_body_pos
     
     def _get_motion_times(self, env_ids=None):
         if env_ids is None:
@@ -198,13 +211,26 @@ class HumanoidMimic(HumanoidChar):
 
         # CMG returns only key bodies, need to assign to correct indices
         global_body_pos = convert_to_global_root_body_pos(root_pos=root_pos, root_rot=root_rot, body_pos=body_pos)
+        
+        # 调试：保存CMG原始位置用于蓝色球可视化
+        if self._freeze_first_frame:
+            self._cmg_debug_pos = global_body_pos.clone()
+            cprint("\n[调试] 强制更新参考轨迹...", "cyan")
+        
         if getattr(self, '_use_cmg', False):
             # CMG输出的关键体顺序与配置一致，直接按顺序分配
             # global_body_pos[:, i] 对应 _key_body_ids[i] 位置
             for i in range(min(len(self._key_body_ids), global_body_pos.shape[1])):
                 self._ref_body_pos[:, self._key_body_ids[i]] = global_body_pos[:, i]
         else:
-            self._ref_body_pos[:] = global_body_pos
+            # 非CMG情况下，假设返回的是所有身体位置
+            if global_body_pos.shape[1] == len(self._key_body_ids):
+                # 如果只有关键体位置，按顺序分配
+                for i in range(len(self._key_body_ids)):
+                    self._ref_body_pos[:, self._key_body_ids[i]] = global_body_pos[:, i]
+            else:
+                # 否则直接赋值所有身体位置
+                self._ref_body_pos[:] = global_body_pos
             
     def _reset_root_states(self, env_ids, root_vel=None, root_quat=None, root_pos=None, root_ang_vel=None):
         """ Resets ROOT states position and velocities of selected environmments

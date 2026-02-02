@@ -451,6 +451,41 @@ class HumanoidChar(LeggedRobot):
                 for i in range(ref_key_body_pos.shape[1]):
                     pose = gymapi.Transform(gymapi.Vec3(ref_key_body_pos[id, i, 0], ref_key_body_pos[id, i, 1], ref_key_body_pos[id, i, 2]), r=None)
                     gymutil.draw_lines(geom, self.gym, self.viewer, self.envs[id], pose)
+        
+        # 添加蓝色参考轨迹球（CMG原始输出）
+        if hasattr(self, '_cmg_debug_pos') and self._cmg_debug_pos is not None:
+            color_blue = (0, 0, 1)  # 蓝色
+            geom_blue = gymutil.WireframeSphereGeometry(sphere_size * 0.8, 32, 32, None, color=color_blue)
+            # 使用CMG原始输出位置（全局坐标）
+            for id in range(min(1, self.num_envs)):  # 只画第一个环境
+                for i in range(self._cmg_debug_pos.shape[1]):
+                    pose = gymapi.Transform(
+                        gymapi.Vec3(
+                            self._cmg_debug_pos[id, i, 0],
+                            self._cmg_debug_pos[id, i, 1], 
+                            self._cmg_debug_pos[id, i, 2]
+                        ), 
+                        r=None
+                    )
+                    gymutil.draw_lines(geom_blue, self.gym, self.viewer, self.envs[id], pose)
+        
+        # 添加蓝色参考轨迹球
+        if hasattr(self, '_ref_body_pos'):
+            color_blue = (0, 0, 1)  # 蓝色
+            geom_blue = gymutil.WireframeSphereGeometry(sphere_size * 0.8, 32, 32, None, color=color_blue)
+            # 使用CMG原始输出位置（全局坐标）
+            if hasattr(self, '_cmg_debug_pos') and self._cmg_debug_pos is not None:
+                for id in range(min(1, self.num_envs)):  # 只画第一个环境
+                    for i in range(self._cmg_debug_pos.shape[1]):
+                        pose = gymapi.Transform(
+                            gymapi.Vec3(
+                                self._cmg_debug_pos[id, i, 0],
+                                self._cmg_debug_pos[id, i, 1], 
+                                self._cmg_debug_pos[id, i, 2]
+                            ), 
+                            r=None
+                        )
+                        gymutil.draw_lines(geom_blue, self.gym, self.viewer, self.envs[id], pose)
     
 
     ######### utils #########
