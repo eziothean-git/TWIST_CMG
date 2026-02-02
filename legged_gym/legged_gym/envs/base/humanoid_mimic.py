@@ -363,6 +363,26 @@ class HumanoidMimic(HumanoidChar):
             cprint("  - 按 Ctrl+C 结束调试", "yellow")
             cprint("="*60 + "\n", "yellow")
             
+            # 强制刷新参考轨迹确保最新状态
+            cprint("[调试] 强制更新参考轨迹...", "yellow")
+            self._update_ref_motion()
+            
+            cprint(f"[数据源] motion_ids: {self._motion_ids[0].item()}", "cyan")
+            cprint(f"[数据源] motion_times: {(self.episode_length_buf[0] * self.dt + self._motion_time_offsets[0]).item():.4f}s", "cyan")
+            cprint(f"[数据源] episode_length: {self.episode_length_buf[0].item()}", "cyan")
+            
+            # 检查CMG原始输出
+            if getattr(self, '_use_cmg', False):
+                motion_times = self._get_motion_times()
+                try:
+                    root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, body_pos = \
+                        self._motion_lib.calc_motion_frame(self._motion_ids, motion_times)
+                    cprint(f"[CMG原始] 根位置: ({root_pos[0, 0]:.4f}, {root_pos[0, 1]:.4f}, {root_pos[0, 2]:.4f})", "magenta")
+                    cprint(f"[CMG原始] 关键体数量: {body_pos.shape[1]}", "magenta")
+                    cprint(f"[CMG原始] 第一个关键体: ({body_pos[0, 0, 0]:.4f}, {body_pos[0, 0, 1]:.4f}, {body_pos[0, 0, 2]:.4f})", "magenta")
+                except Exception as e:
+                    cprint(f"[CMG错误] {e}", "red")
+            
             # 计算并打印第一个环境的误差信息
             if self._pose_termination:
                 body_pos = self.rigid_body_states[0:1, self._key_body_ids, 0:3] - self.rigid_body_states[0:1, 0:1, 0:3]
@@ -407,6 +427,14 @@ class HumanoidMimic(HumanoidChar):
                         cprint(f"[警告] 关键体ID不匹配!", "red")
                         cprint(f"  环境ID: {self._key_body_ids.tolist()}", "red") 
                         cprint(f"  Motion ID: {self._key_body_ids_motion}", "red")
+                        
+                        # 打印每个关键体的名称对应关系
+                        key_body_names = self.cfg.motion.key_bodies
+                        cprint(f"[映射调试] 关键体名称顺序:", "yellow")
+                        for i, name in enumerate(key_body_names):
+                            env_id = self._key_body_ids[i].item() if i < len(self._key_body_ids) else "N/A"
+                            motion_id = self._key_body_ids_motion[i] if i < len(self._key_body_ids_motion) else "N/A"
+                            cprint(f"  {i}: {name} -> 环境ID={env_id}, MotionID={motion_id}", "yellow")
                     else:
                         cprint(f"[确认] 关键体ID匹配: {len(self._key_body_ids)}个", "green")
             
