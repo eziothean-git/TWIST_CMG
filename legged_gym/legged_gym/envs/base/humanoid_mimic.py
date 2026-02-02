@@ -86,7 +86,8 @@ class HumanoidMimic(HumanoidChar):
     def _load_motions(self):
         if getattr(self.cfg.motion, 'use_cmg', False):
             from pose.utils.cmg_motion_lib import CMGMotionLib
-            urdf_path = f"{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_custom_collision_with_fixed_hand.urdf"
+            # 使用 29DOF URDF 进行 FK 计算以匹配 CMG 输出的运动学树
+            urdf_path = f"{LEGGED_GYM_ROOT_DIR}/../assets/g1/g1_29dof_simple_collision.urdf"
             self._motion_lib = CMGMotionLib(
                 cmg_model_path=self.cfg.motion.cmg_model_path,
                 cmg_data_path=self.cfg.motion.cmg_data_path,
@@ -360,41 +361,50 @@ class HumanoidMimic(HumanoidChar):
             
             # 计算并打印第一个环境的误差信息
             if self._pose_termination:
-                # global误差
-                act_global = self.rigid_body_states[0:1, self._key_body_ids, 0:3]
-                ref_global = self._ref_body_pos[0:1, self._key_body_ids, 0:3]
-                global_diff = ref_global - act_global
-                global_dist = torch.sqrt(torch.sum(global_diff * global_diff, dim=-1)).squeeze(0)
-
-                # local误差（根坐标系）
-                act_local = act_global - self.root_states[0:1, 0:1, 0:3]
-                ref_local = ref_global - self._ref_root_pos[0:1, None, :]
-                act_local = convert_to_local_root_body_pos(self.root_states[0:1, 3:7], act_local)
-                ref_local = convert_to_local_root_body_pos(self._ref_root_rot[0:1], ref_local)
-                local_diff = ref_local - act_local
-                local_dist = torch.sqrt(torch.sum(local_diff * local_diff, dim=-1)).squeeze(0)
-
-                max_dist = torch.max(local_dist)
-                mean_dist = torch.mean(local_dist)
-                cprint(
-                    f"[环境0] 关键体local偏差: mean={mean_dist.item():.4f}m, max={max_dist.item():.4f}m (阈值: {self._pose_termination_dist:.4f}m)",
-                    "cyan",
-                )
-
-                # 打印Top-5关键体（按local误差）
-                key_body_names = getattr(self.cfg.motion, 'key_bodies', None)
-                if key_body_names is None:
-                    key_body_names = [str(i) for i in range(len(self._key_body_ids))]
-                topk = min(5, local_dist.numel())
-                top_vals, top_idx = torch.topk(local_dist, k=topk, largest=True)
-                cprint("[环境0] local误差Top:", "cyan")
-                for rank in range(topk):
-                    idx = int(top_idx[rank].item())
-                    name = key_body_names[idx] if idx < len(key_body_names) else str(idx)
-                    cprint(
-                        f"  - {name}: local={top_vals[rank].item():.4f}m, global={global_dist[idx].item():.4f}m",
-                        "cyan",
-                    )
+                body_pos = self.rigid_body_states[0:1, self._key_body_ids, 0:3] - self.rigid_body_states[0:1, 0:1, 0:3]
+                tar_body_pos = self._ref_body_pos[0:1, self._key_body_ids] - self._ref_root_pos[0:1, None, :]
+                body_pos = convert_to_local_root_body_pos(self.root_states[0:1, 3:7], body_pos)
+                tar_body_pos = convert_to_local_root_body_pos(self._ref_root_rot[0:1], tar_body_pos)
+                body_pos_diff = tar_body_pos - body_pos
+                body_pos_dist = torch.sqrt(torch.sum(body_pos_diff * body_pos_diff, dim=-1))
+                max_dist = torch.max(body_pos_dist)
+                cprint(f"[环境0] 最大关键体偏差: {max_dist.item():.4f}m (阈值: {self._pose_termination_dist:.4f}m)", "cyan")
+                
+                # 详细的TOP5误差分析
+                cprint("\n[误差分析] TOP5 关键体三轴偏差:", "yellow")
+                body_names = ["left_hand", "right_hand", "left_ankle", "right_ankle", 
+                             "left_knee", "right_knee", "left_elbow", "right_elbow", "head"]
+                errors = []
+                for i in range(min(body_pos_diff.shape[1], len(body_names))):
+                    diff = body_pos_diff[0, i]  # (3,)
+                    dist = body_pos_dist[0, i].item()
+                    errors.append((dist, i, diff.cpu().numpy(), body_names[i] if i < len(body_names) else f"body_{i}"))
+                
+                errors.sort(reverse=True)  # 按距离降序排列
+                for rank, (dist, idx, diff, name) in enumerate(errors[:5]):
+                    cprint(f"  {rank+1}. {name:12}: 总距离={dist:.4f}m, xyz=({diff[0]:+.3f}, {diff[1]:+.3f}, {diff[2]:+.3f})", "cyan")
+                
+                # 检查根位置对齐
+                root_diff = self._ref_root_pos[0] - self.root_states[0, :3]
+                cprint(f"\n[根位置偏差] xyz=({root_diff[0]:+.4f}, {root_diff[1]:+.4f}, {root_diff[2]:+.4f})", "magenta")
+                cprint(f"[根位置值] 实际=({self.root_states[0, 0]:+.4f}, {self.root_states[0, 1]:+.4f}, {self.root_states[0, 2]:+.4f})", "magenta")
+                cprint(f"[根位置值] 参考=({self._ref_root_pos[0, 0]:+.4f}, {self._ref_root_pos[0, 1]:+.4f}, {self._ref_root_pos[0, 2]:+.4f})", "magenta")
+                
+                # 检查全局关键体位置（不做本地转换）
+                global_body_pos = self.rigid_body_states[0:1, self._key_body_ids, 0:3]
+                global_tar_body_pos = self._ref_body_pos[0:1, self._key_body_ids]
+                global_diff = global_tar_body_pos - global_body_pos
+                global_dist = torch.sqrt(torch.sum(global_diff * global_diff, dim=-1))
+                cprint(f"[全局对比] 最大关键体全局偏差: {torch.max(global_dist).item():.4f}m", "yellow")
+                
+                # 关键体ID对比检查
+                if hasattr(self, '_key_body_ids_motion'):
+                    if not torch.equal(self._key_body_ids, torch.tensor(self._key_body_ids_motion, device=self.device)):
+                        cprint(f"[警告] 关键体ID不匹配!", "red")
+                        cprint(f"  环境ID: {self._key_body_ids.tolist()}", "red") 
+                        cprint(f"  Motion ID: {self._key_body_ids_motion}", "red")
+                    else:
+                        cprint(f"[确认] 关键体ID匹配: {len(self._key_body_ids)}个", "green")
             
             # 无限循环直到用户中断
             import time
