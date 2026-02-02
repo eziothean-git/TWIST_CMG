@@ -31,7 +31,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         send_timeouts = True # send time out information to the algorithm
         episode_length_s = 10
         
-        randomize_start_pos = True
+        randomize_start_pos = False
         randomize_start_yaw = False
         
         history_encoding = True
@@ -244,7 +244,7 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         root_height_diff_threshold = 0.2
 
     class domain_rand:
-        domain_rand_general = True # manually set this, setting from parser does not work;
+        domain_rand_general = False # manually set this, setting from parser does not work;
         
         randomize_gravity = (True and domain_rand_general)
         gravity_rand_interval_s = 4
