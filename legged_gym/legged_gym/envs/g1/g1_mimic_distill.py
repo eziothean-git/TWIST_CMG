@@ -250,6 +250,11 @@ class G1MimicDistill(HumanoidMimic):
         ref_rot = self._ref_root_rot[env_id].cpu().numpy()  # xyzw格式
         ref_dof = self._ref_dof_pos[env_id].cpu().numpy()
         
+        # 获取机器人实际位置，将参考骨架绘制在机器人旁边便于对比
+        robot_pos = self.root_states[env_id, :3].cpu().numpy()
+        # 使用机器人XY位置 + 参考Z高度，添加Y方向偏移以并排显示
+        pelvis = np.array([robot_pos[0], robot_pos[1] + 0.5, ref_pos[2]])
+        
         # 从四元数提取yaw角（xyzw格式）
         qx, qy, qz, qw = ref_rot
         yaw = np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
@@ -289,9 +294,6 @@ class G1MimicDistill(HumanoidMimic):
         torso_height = 0.35
         upper_arm_len = 0.25
         forearm_len = 0.22
-        
-        # 骨盆位置
-        pelvis = ref_pos.copy()
         
         # 计算关节位置（局部坐标）
         # 左腿
