@@ -2,14 +2,14 @@
 
 ## 最新更新（2026-02-02）
 
-### 奖励权重优化 + 速度指令追踪
+### 奖励权重优化 + 动态混合调度（整合方案）
 **问题**：800轮训练，30% motion_end，30% timeout，追踪效果不佳。
 
 **原因**：
 1. tracking奖励权重过低（总和4.4 vs feet_air_time 5.0）
-2. **关键遗漏**：没有速度指令追踪奖励！CMG根据速度指令生成轨迹，不追踪指令无法对齐
+2. **关键遗漏**：没有速度指令追踪！CMG根据速度指令生成轨迹，不追踪指令无法对齐
 
-**解决方案**（2倍tracking提升 + 新增速度指令追踪）：
+**最终方案**（整合你的commit e7936ee + 我的修改）：
 ```python
 # 轨迹追踪（约2倍提升）
 tracking_keybody_pos = 4.0       # 2.0→4.0
@@ -18,26 +18,47 @@ tracking_root_pose = 1.2         # 0.6→1.2
 tracking_joint_dof = 1.2         # 0.6→1.2
 tracking_joint_vel = 0.4         # 0.2→0.4
 
-# 速度指令追踪（新增）
+# 速度指令追踪（新增，使用humanoid.py已有方法）
 tracking_lin_vel_exp = 2.0       # xy速度指令
 tracking_ang_vel = 1.0           # yaw角速度指令
 
 # 步态优化
-feet_air_time = 1.0              # 5.0→1.0（保留但降权）
+feet_air_time = 1.0              # 5.0→1.0
+
+# 动态混合调度（你的方案）
+trackingGroupNames = [轨迹追踪5项]
+cmdTrackingNames = [速度指令追踪2项]
+cmdTrackingMixEnable = True
+cmdTrackingMixStartIter = 500    # 500轮开始
+cmdTrackingMixEndIter = 1000     # 1000轮达到最终比例
+cmdTrackingFinalRatio = 0.4      # 最终40%权重给速度指令
 ```
 
+**核心机制**（来自你的commit）：
+1. **前500轮**：100%权重用于轨迹追踪，学习基本跟踪能力
+2. **500-1000轮**：逐步增加速度指令追踪权重（0→40%）
+3. **1000轮后**：60%轨迹追踪 + 40%速度指令追踪
+
 **代码修改**：
-1. `legged_gym/legged_gym/envs/g1/g1_mimic_distill_config.py`：添加速度指令追踪奖励项
-2. `legged_gym/legged_gym/envs/base/humanoid_mimic.py`：`_update_ref_motion()`中更新commands
-   ```python
-   if getattr(self, '_use_cmg', False):
-       self.commands[:, :3] = self._motion_lib.get_commands()
-   ```
+1. `humanoid_mimic.py`：
+   - 添加`_reward_tracking_lin_vel_exp()`和`_reward_tracking_ang_vel()`
+   - `_update_ref_motion()`中更新`self.commands`
+   
+2. `g1_mimic_distill_config.py`：
+   - 添加速度指令追踪奖励配置
+   - 配置动态混合调度参数
+   
+3. `legged_robot.py`（已有，来自你的commit）：
+   - `_get_cmd_tracking_mix()`：计算动态权重
+   - `compute_reward()`：应用权重混合
+   
+4. `on_policy_runner_mimic.py`（已有）：
+   - 每轮调用`env.set_learning_iteration(it)`
 
 **效果预期**：
-- tracking总权重：8.8（轨迹）+ 3.0（速度指令）= 11.8
-- 模型同时学习轨迹追踪和速度指令对齐
-- timeout应下降，追踪精度提升
+- 初期专注学习轨迹追踪（避免速度指令干扰）
+- 后期逐渐引入速度指令对齐（确保与CMG输入一致）
+- timeout应下降，追踪精度提升，速度指令对齐改善
 
 ---
 

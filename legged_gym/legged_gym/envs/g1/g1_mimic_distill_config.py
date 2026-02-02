@@ -247,6 +247,20 @@ class G1MimicPrivCfg(HumanoidMimicCfg):
         torque_safety_limit = 0.9
         root_height_diff_threshold = 0.2
         
+        # 速度指令追踪混合调度
+        trackingGroupNames = [
+            "tracking_joint_dof",
+            "tracking_joint_vel",
+            "tracking_root_pose",
+            "tracking_root_vel",
+            "tracking_keybody_pos",
+        ]
+        cmdTrackingNames = ["tracking_lin_vel_exp", "tracking_ang_vel"]
+        cmdTrackingMixEnable = True
+        cmdTrackingMixStartIter = 500   # 500轮开始引入速度指令追踪
+        cmdTrackingMixEndIter = 1000    # 1000轮达到最终比例
+        cmdTrackingFinalRatio = 0.4     # 最终40%权重给速度指令追踪
+        
         # 严格的根角度终止条件，防止机器人趴地
         termination_roll = 0.5  # 约30度，防止侧翻
         termination_pitch = 0.5  # 约30度，防止前后翻倒
@@ -435,6 +449,20 @@ class G1MimicStuRLCfg(G1MimicPrivCfg):
         soft_torque_limit = 0.95
         torque_safety_limit = 0.9
         root_height_diff_threshold = 0.2
+        
+        # 速度指令追踪混合调度
+        trackingGroupNames = [
+            "tracking_joint_dof",
+            "tracking_joint_vel",
+            "tracking_root_pose",
+            "tracking_root_vel",
+            "tracking_keybody_pos",
+        ]
+        cmdTrackingNames = ["tracking_lin_vel_exp", "tracking_ang_vel"]
+        cmdTrackingMixEnable = True
+        cmdTrackingMixStartIter = 500
+        cmdTrackingMixEndIter = 1000
+        cmdTrackingFinalRatio = 0.4
 
 class G1MimicPrivCfgPPO(HumanoidMimicCfgPPO):
     seed = 1

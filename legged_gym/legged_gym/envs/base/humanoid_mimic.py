@@ -811,6 +811,16 @@ class HumanoidMimic(HumanoidChar):
         # return torch.exp(-root_vel_scale * (root_vel_err + 0.1 * root_ang_vel_err))
         return torch.exp(-root_vel_scale * (root_vel_err + 0.5 * root_ang_vel_err))
     
+    def _reward_tracking_lin_vel_exp(self):
+        """线速度指令追踪（xy平面）"""
+        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
+        return torch.exp(-lin_vel_error / self.cfg.rewards.tracking_sigma)
+    
+    def _reward_tracking_ang_vel(self):
+        """角速度指令追踪（yaw）"""
+        ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
+        return torch.exp(-ang_vel_error / self.cfg.rewards.tracking_sigma_ang)
+    
     
     def _error_tracking_root_vel(self):
         local_ref_root_vel = quat_rotate_inverse(self._ref_root_rot, self._ref_root_vel)
