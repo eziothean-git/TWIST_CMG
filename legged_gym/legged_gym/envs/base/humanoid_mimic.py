@@ -79,7 +79,7 @@ class HumanoidMimic(HumanoidChar):
                 vx_range=tuple(self.cfg.motion.cmg_vx_range),
                 vy_range=tuple(self.cfg.motion.cmg_vy_range),
                 yaw_range=tuple(self.cfg.motion.cmg_yaw_range),
-                root_height=getattr(self.cfg.motion, 'cmg_root_height', 0.75),
+                root_height=getattr(self.cfg.motion, 'cmg_root_height', self.base_init_state[2]),
                 offline_mode=getattr(self.cfg.motion, 'cmg_offline_mode', True),
                 num_trajectories=getattr(self.cfg.motion, 'cmg_num_trajectories', 2048),
             )
