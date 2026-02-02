@@ -239,6 +239,10 @@ class OnPolicyRunnerMimic:
             
             stop = time.time()
             learn_time = stop - start
+            
+            # 遥测：从环境获取终止原因统计
+            termination_stats = self.env.extras.get('termination_stats', None)
+            
             if self.log_dir is not None:
                 self.log(locals())
             if it < 2500:
@@ -321,9 +325,9 @@ class OnPolicyRunnerMimic:
             # wandb_dict['Train/mean_episode_length/time', statistics.mean(locs['lenbuffer']), self.tot_time)
 
         # 遥测：上报终止原因占比
-        if 'Termination reason' in locs:
-            for term_reason, term_ratio in locs['Termination reason'].items():
-                wandb_dict[f'Termination reason/{term_reason}'] = term_ratio
+        if locs.get('termination_stats') is not None:
+            for term_key, term_ratio in locs['termination_stats'].items():
+                wandb_dict[f'Termination_reason/{term_key}'] = term_ratio
 
         wandb.log(wandb_dict, step=locs['it'])
 

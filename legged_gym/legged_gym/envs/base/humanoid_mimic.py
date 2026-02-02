@@ -57,8 +57,6 @@ class HumanoidMimic(HumanoidChar):
             'pose_fail': 0,
             'root_tracking_fail': 0,
         }
-        # 初始化当前终止原因计数
-        self._current_termination_reasons = self.termination_stats.copy()
         
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
     
@@ -239,34 +237,23 @@ class HumanoidMimic(HumanoidChar):
             return
         
         # 遥测：统计终止原因占比并上报wandb
-        if hasattr(self, '_current_termination_reasons') and self._current_termination_reasons:
-            # 累加本轮的终止原因统计
+        if hasattr(self, '_current_termination_reasons'):
             for reason, count in self._current_termination_reasons.items():
                 self.termination_stats[reason] += count
             
-            # 每次全量重置时上报统计（约1次迭代周期）
-            if len(env_ids) == self.num_envs:
-                total_terminations = sum(self.termination_stats.values())
-                if total_terminations > 0:
-                    # 初始化Termination reason项如果还未在extras中
-                    if 'Termination reason' not in self.extras:
-                        self.extras['Termination reason'] = {}
-                    
-                    # 计算百分比并存储到extras中的Termination reason项
-                    for reason, count in sorted(self.termination_stats.items(), key=lambda x: x[1], reverse=True):
-                        ratio = 100.0 * count / total_terminations
-                        self.extras['Termination reason'][reason] = ratio
-                    
-                    # 打印到终端便于调试
-                    cprint(f"\n[遥测] 本迭代周期终止原因占比 (总数: {total_terminations:.0f}):", "yellow")
-                    for reason, ratio in self.extras['Termination reason'].items():
-                        count = self.termination_stats[reason]
-                        cprint(f"  {reason:20s}: {ratio:6.1f}% ({count:.0f})", "cyan")
-                    
-                    # 重置统计
-                    for key in self.termination_stats:
-                        self.termination_stats[key] = 0
-                    self._current_termination_reasons = {k: 0 for k in self._current_termination_reasons.keys()}
+            # 初始化termination_stats如果还未在extras中
+            if 'termination_stats' not in self.extras:
+                self.extras['termination_stats'] = {}
+            
+            total_terminations = sum(self.termination_stats.values())
+            if total_terminations > 0:
+                # 计算百分比并存储到extras
+                for reason, count in self.termination_stats.items():
+                    ratio = 100.0 * count / total_terminations
+                    self.extras['termination_stats'][f'term_{reason}_ratio'] = ratio
+                # 重置统计
+                for key in self.termination_stats:
+                    self.termination_stats[key] = 0
         
         # fill extras
         self.extras["episode"] = {}
