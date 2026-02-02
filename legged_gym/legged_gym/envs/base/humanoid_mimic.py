@@ -543,6 +543,11 @@ class HumanoidMimic(HumanoidChar):
         }
         
         if self._pose_termination:
+            # 添加2秒延迟：只有在episode运行2秒后才启用姿态终止
+            pose_termination_warmup_time = 2.0  # 2秒预热时间
+            current_time = self.episode_length_buf * self.dt
+            pose_termination_enabled = current_time > pose_termination_warmup_time
+            
             body_pos = self.rigid_body_states[:, self._key_body_ids, 0:3] - self.rigid_body_states[:, 0:1, 0:3]
             tar_body_pos = self._ref_body_pos[:, self._key_body_ids] - self._ref_root_pos[:, None, :] 
             
@@ -560,6 +565,8 @@ class HumanoidMimic(HumanoidChar):
             # pose_fail = self.deviate_tracking_frames >= self.cfg.motion.reset_consec_frames # 50 frames = 1 second
             
             pose_fail = body_pos_dist > self._pose_termination_dist ** 2
+            # 只有在预热时间后才应用姿态终止
+            pose_fail = pose_fail & pose_termination_enabled
             
             # pose_fail = body_pos_dist > self.motion_termination_dist[self._motion_ids] ** 2
             
@@ -569,12 +576,16 @@ class HumanoidMimic(HumanoidChar):
                 root_pos_dist = torch.sum(root_pos_diff * root_pos_diff, dim=-1)
                 root_tracking_fail = root_pos_dist > self._root_tracking_termination_dist ** 2
                 root_tracking_fail = root_tracking_fail.squeeze(-1)
+                # 根追踪失败也需要预热时间
+                root_tracking_fail = root_tracking_fail & pose_termination_enabled
                 pose_fail |= root_tracking_fail
             self.reset_buf |= pose_fail
             
             # 遥测：记录pose失败和root追踪失败
             self._current_termination_reasons['pose_fail'] = pose_fail.sum().item()
             self._current_termination_reasons['root_tracking_fail'] = root_tracking_fail.sum().item()
+            # 记录预热状态统计
+            self._current_termination_reasons['pose_warmup_active'] = (~pose_termination_enabled).sum().item()
         
         first_step = self.episode_length_buf == 0
 
